@@ -1,0 +1,2460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0f14">
+<meta name="color-scheme" content="dark">
+<title>Stereo Measure — 2-photo capture</title>
+<style>
+  :root{
+    --bg:#0b0f14; --card:#131b23; --card2:#0e1620; --line:#22303c;
+    --fg:#e9f1f8; --dim:#93a7b7; --acc:#3ad0ff; --ok:#37d67a; --warn:#ffb020; --err:#ff5c5c;
+    --wide:#3ad0ff; --ultra:#ff8a3d;
+    --pad-bottom: calc(20px + env(safe-area-inset-bottom));
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--fg);
+    font:16px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    padding:10px 10px var(--pad-bottom); max-width:760px; margin:0 auto;
+    -webkit-text-size-adjust:100%;
+  }
+  h1{font-size:19px;margin:4px 0 2px;letter-spacing:-.2px}
+  h2{font-size:15px;margin:0 0 2px;letter-spacing:.2px;text-transform:uppercase;color:var(--fg)}
+  p{margin:6px 0}
+  .sub{color:var(--dim);font-size:13px;margin:0 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:13px;margin:0 0 11px}
+  .card.tight{padding:10px 12px}
+  .pills{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}
+  .pill{font-size:11.5px;padding:3px 8px;border-radius:999px;border:1px solid var(--line);background:var(--card2);color:var(--dim);white-space:nowrap}
+  .pill.ok{color:var(--ok);border-color:#1d4632}
+  .pill.warn{color:var(--warn);border-color:#4a3a17}
+  .pill.err{color:var(--err);border-color:#4a2121}
+  .stephead{display:flex;align-items:center;gap:9px;margin-bottom:8px}
+  .num{flex:0 0 auto;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;color:#04121a}
+  .num.w{background:var(--wide)} .num.u{background:var(--ultra)}
+  .stephead .t{flex:1 1 auto;min-width:0}
+  .stephead .t small{display:block;color:var(--dim);font-size:12px;font-weight:400;text-transform:none;letter-spacing:0}
+  .stage{position:relative;border-radius:12px;overflow:hidden;background:#000;aspect-ratio:4/3;margin:8px 0}
+  .stage video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+  .guide{position:absolute;inset:9% 14%;border:2px dashed rgba(255,255,255,.4);border-radius:12px;pointer-events:none}
+  .guide span{position:absolute;left:0;right:0;bottom:-26px;text-align:center;font-size:11.5px;color:rgba(255,255,255,.72)}
+  .lensbadge{position:absolute;left:7px;top:7px;display:flex;align-items:center;gap:6px;
+    background:rgba(0,0,0,.62);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+    border-radius:999px;padding:5px 10px;font-size:12.5px;font-weight:700;max-width:calc(100% - 14px)}
+  .lensbadge .dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:0 0 auto}
+  .lensbadge.live .dot{background:var(--ok);animation:pulse 1.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .lensbadge .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .stagefoot{position:absolute;right:7px;top:7px;background:rgba(0,0,0,.62);border-radius:999px;padding:5px 9px;font-size:11.5px;color:#cfe0ee}
+  .btn{appearance:none;-webkit-appearance:none;display:block;width:100%;border:0;border-radius:14px;
+    padding:15px;font-size:17px;font-weight:650;min-height:56px;background:var(--acc);color:#04121a;margin-top:8px}
+  .btn:disabled{opacity:.42}
+  .btn.sec{background:#1e2a36;color:var(--fg);border:1px solid var(--line);font-size:15.5px;min-height:50px}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--dim);font-size:14.5px;min-height:44px}
+  .btn.danger{background:#3a1f22;color:#ffb4b4;border:1px solid #5a2b2b}
+  .shutterwrap{display:flex;justify-content:center;padding:4px 0 2px}
+  .shutter{width:78px;height:78px;border-radius:50%;background:#fff;border:5px solid #46566a;
+    box-shadow:0 0 0 2px rgba(0,0,0,.5) inset;appearance:none;padding:0}
+  .shutter:active{transform:scale(.96)}
+  .shutter[disabled]{background:#6b7a8a;opacity:.6}
+  .row{display:flex;gap:8px}
+  .row .btn{margin-top:8px}
+  .thumb{width:100%;display:block;border-radius:11px;background:#000}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+  .pair figure{margin:0}
+  .pair figcaption{font-size:11.5px;color:var(--dim);text-align:center;margin-top:4px;line-height:1.3}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin:7px 0 2px}
+  .chip{font-size:11.5px;padding:4px 8px;border-radius:8px;background:var(--card2);border:1px solid var(--line);color:var(--dim)}
+  .chip b{color:var(--fg);font-weight:600}
+  .verdict{margin:8px 0 2px;padding:9px 11px;border-radius:11px;font-size:13.5px;border:1px solid var(--line);background:var(--card2);line-height:1.4}
+  .verdict.ok{border-color:#1d4632;background:#0e1f18}
+  .verdict.warn{border-color:#4a3a17;background:#1f1809}
+  .verdict.err{border-color:#4a2121;background:#1f0f0f}
+  .verdict b{display:block;margin-bottom:2px}
+  .verdict .hint{color:var(--dim);font-size:12.5px}
+  .kv{width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0}
+  .kv th,.kv td{text-align:left;padding:4px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  .kv th{color:var(--dim);font-weight:500;width:38%}
+  .kv td{font-variant-numeric:tabular-nums;word-break:break-word}
+  details{border:1px solid var(--line);border-radius:12px;background:var(--card2);margin-top:9px}
+  details>summary{padding:11px 12px;font-size:14px;color:var(--fg);cursor:pointer;list-style:none}
+  details>summary::-webkit-details-marker{display:none}
+  details>summary::before{content:"▸ ";color:var(--dim)}
+  details[open]>summary::before{content:"▾ "}
+  details .inner{padding:0 12px 12px}
+  label.field{display:block;margin:8px 0 2px;font-size:12.5px;color:var(--dim)}
+  input[type=text],select{width:100%;font-size:16px;padding:11px;border-radius:11px;background:#0a1119;
+    color:var(--fg);border:1px solid var(--line);appearance:none}
+  pre{background:#070c11;border:1px solid var(--line);border-radius:11px;padding:9px;font-size:11px;
+    overflow:auto;max-height:260px;color:#b9cede;-webkit-overflow-scrolling:touch}
+  ul.tips{margin:6px 0 0;padding-left:20px;color:var(--dim);font-size:13.5px}
+  ul.tips li{margin:3px 0}
+  ul.tips b{color:var(--fg)}
+  .hidden{display:none !important}
+  .foot{color:var(--dim);font-size:11.5px;text-align:center;margin:14px 0 4px;line-height:1.5}
+  .prog{display:flex;gap:5px;margin:2px 0 9px}
+  .prog i{flex:1;height:4px;border-radius:2px;background:#1c2733}
+  .prog i.on{background:var(--ok)}
+  .inline-note{font-size:12.5px;color:var(--dim);margin:6px 0 0}
+  .banner{padding:10px 12px;border-radius:12px;font-size:13.5px;margin:8px 0;border:1px solid var(--line);background:var(--card2)}
+  .banner.warn{border-color:#4a3a17;background:#1f1809;color:#ffd894}
+  .banner.err{border-color:#4a2121;background:#1f0f0f;color:#ffb4b4}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.25);
+    border-top-color:#fff;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Stereo Measure — 2-photo capture</h1>
+  <p class="sub">One object, two rear lenses, one ZIP. Static page — nothing is uploaded anywhere.</p>
+  <div class="pills" id="pills"></div>
+</header>
+
+<main>
+  <div class="prog" id="prog"><i id="p1"></i><i id="p2"></i><i id="p3"></i></div>
+
+  <!-- ============ one-tap dual capture ============ -->
+  <section class="card" id="card-duo">
+    <div class="stephead">
+      <div class="num" style="background:var(--acc);color:#04121a">◆</div>
+      <div class="t"><h2>One-tap dual capture</h2><small>One shutter → 1× wide + 0.5× ultrawide, same object</small></div>
+    </div>
+    <p class="inline-note">One tap captures <b>both</b> rear lenses. The phone decides how: true parallel if Safari holds both streams, otherwise a single-stream lens switch back-to-back. The actual mode and inter-frame gap are recorded — nothing is claimed that was not measured.</p>
+    <button class="btn" id="go-duo">Capture both lenses at once</button>
+    <div class="chips hidden" id="chips-duo"></div>
+    <div class="verdict hidden" id="verdict-duo"></div>
+    <p class="inline-note">Manual single-lens steps below remain as fallback (e.g. Camera-app EXIF path, old iOS with one lens).</p>
+  </section>
+
+  <!-- ============ step 1: wide ============ -->
+  <section class="card" id="card-wide">
+    <div class="stephead">
+      <div class="num w">1</div>
+      <div class="t"><h2>Main camera · 1× wide</h2><small>Primary measurement camera — shoot this one first</small></div>
+    </div>
+
+    <div class="stage" id="stage-wide">
+      <video id="video-wide" playsinline webkit-playsinline muted autoplay></video>
+      <div class="guide"><span>fill ~60–80% of this box</span></div>
+      <div class="lensbadge" id="badge-wide"><span class="dot"></span><span class="txt">camera idle</span></div>
+      <div class="stagefoot" id="foot-wide"></div>
+    </div>
+
+    <div class="shutterwrap hidden" id="shut-wrap-wide">
+      <button class="shutter" id="shut-wide" aria-label="Capture 1x wide photo"></button>
+    </div>
+
+    <button class="btn" id="go-wide">Start 1× camera</button>
+    <div class="row" id="row-wide-live" style="display:none">
+      <button class="btn sec" id="switch-wide" style="flex:2">Switch lens</button>
+      <button class="btn ghost" id="stop-wide" style="flex:1">Stop</button>
+    </div>
+    <button class="btn sec" id="file-wide">Use iPhone Camera app instead</button>
+    <input type="file" id="input-wide" accept="image/jpeg" capture="environment" class="hidden">
+
+    <img class="thumb hidden" id="thumb-wide" alt="wide capture preview">
+    <div class="chips hidden" id="chips-wide"></div>
+    <div class="verdict hidden" id="verdict-wide"></div>
+    <button class="btn ghost hidden" id="retake-wide">Retake 1× photo</button>
+  </section>
+
+  <!-- ============ step 2: ultrawide ============ -->
+  <section class="card hidden" id="card-ultra">
+    <div class="stephead">
+      <div class="num u">2</div>
+      <div class="t"><h2>Ultrawide · 0.5×</h2><small>Same object, same spot — hold the phone exactly as before</small></div>
+    </div>
+
+    <div class="stage" id="stage-ultra">
+      <video id="video-ultra" playsinline webkit-playsinline muted autoplay></video>
+      <div class="guide"><span>the object must still be fully inside</span></div>
+      <div class="lensbadge" id="badge-ultra"><span class="dot"></span><span class="txt">camera idle</span></div>
+      <div class="stagefoot" id="foot-ultra"></div>
+    </div>
+
+    <div class="shutterwrap hidden" id="shut-wrap-ultra">
+      <button class="shutter" id="shut-ultra" aria-label="Capture ultrawide photo"></button>
+    </div>
+
+    <button class="btn" id="go-ultra">Start 0.5× ultrawide camera</button>
+    <div class="row" id="row-ultra-live" style="display:none">
+      <button class="btn sec" id="switch-ultra" style="flex:2">Switch lens</button>
+      <button class="btn ghost" id="stop-ultra" style="flex:1">Stop</button>
+    </div>
+    <button class="btn sec" id="file-ultra">Use iPhone Camera app instead</button>
+    <input type="file" id="input-ultra" accept="image/jpeg" capture="environment" class="hidden">
+
+    <img class="thumb hidden" id="thumb-ultra" alt="ultrawide capture preview">
+    <div class="chips hidden" id="chips-ultra"></div>
+    <div class="verdict hidden" id="verdict-ultra"></div>
+    <button class="btn ghost hidden" id="retake-ultra">Retake 0.5× photo</button>
+  </section>
+
+  <!-- ============ step 3: export ============ -->
+  <section class="card hidden" id="card-zip">
+    <div class="stephead">
+      <div class="num" style="background:var(--ok);color:#04121a">3</div>
+      <div class="t"><h2>Get the shoot off the phone</h2><small>One ZIP holds both photos + metadata</small></div>
+    </div>
+    <div class="pair">
+      <figure><img class="thumb" id="zip-thumb-wide" alt="1x wide"><figcaption id="zip-cap-wide">1× wide</figcaption></figure>
+      <figure><img class="thumb" id="zip-thumb-ultra" alt="0.5x ultrawide"><figcaption id="zip-cap-ultra">0.5× ultrawide</figcaption></figure>
+    </div>
+    <label class="field" for="objlabel">What is the object? (optional, helps later classification)</label>
+    <input type="text" id="objlabel" placeholder="red ball / coin / mug…" autocomplete="off">
+    <div class="chips" id="zip-chips"></div>
+    <div class="verdict" id="zip-verdict"></div>
+    <button class="btn" id="dl-zip">Download ZIP</button>
+    <button class="btn sec" id="share-zip">Share ZIP (AirDrop / Mail)</button>
+    <button class="btn ghost" id="share-files">Share the two photos instead</button>
+    <button class="btn ghost" id="new-shoot">Start a new shoot</button>
+    <p class="inline-note" id="zip-hint">Nothing leaves this phone until you download or share.</p>
+  </section>
+
+  <!-- ============ tips ============ -->
+  <section class="card">
+    <details>
+      <summary>How to get a usable pair (30 seconds, read once)</summary>
+      <div class="inner">
+        <ul class="tips" id="tips"></ul>
+        <ul class="tips" id="why"></ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ============ diagnostics ============ -->
+  <section class="card">
+    <details id="diag-details">
+      <summary>Device &amp; lens diagnostics (run this on the iPhone)</summary>
+      <div class="inner">
+        <p class="inline-note">Reports what this exact phone and Safari really expose: which back lenses a web page can see,
+          what capture APIs exist, and the live quality of each lens. Useful evidence before trusting any measurement.</p>
+        <button class="btn sec" id="probe">Probe cameras</button>
+        <button class="btn ghost" id="copy-diag">Copy report JSON</button>
+        <pre id="diag-out">not run yet</pre>
+      </div>
+    </details>
+  </section>
+</main>
+
+<footer class="foot">
+  stereo-measure capture v1.1 · no uploads, no accounts, no dependencies<br>
+  Badge shows the lens you are actually shooting with — check it before every shutter.
+</footer>
+
+<script>
+"use strict";
+/* =====================================================================================
+   Stereo Measure — phone-side capture page.
+
+   Structure (one direction of flow, one owner per piece of state):
+
+     DOM events ──► Capture (controller: the user's flow, incl. one-tap captureBoth)
+                        ├──► Camera   (device + stream state, owns live + duo tracks)
+                        └──► Session  (the shoot: shots, duo claim, label, warnings, packaged ZIP)
+                              ▲
+     files ──► Exif / Optics / Lenses (pure) ──┘
+     Session ──► Manifest.build() ──► Zip.build() ──► Blob ──► download / share
+
+     * Pure core (Exif, Optics, Lenses, Zip, Manifest) never touches the DOM or
+       mutable state: same input, same output, testable from a console.
+     * Session is the only writer of shoot data, and invalidates the packaged ZIP
+       itself, so a stale archive cannot survive a retake.
+     * Camera is the only writer of device/stream state (lens list, picks, track).
+     * View is the only writer of the DOM, and has one entry point: View.render().
+     * Capture moves data between them; it holds no state of its own.
+
+   Verified iOS behaviour this rests on: getUserMedia needs a secure context;
+   iOS 16.3+ publishes every rear lens through enumerateDevices() (labels stay
+   empty until camera permission is granted); two simultaneous camera streams
+   historically break Safari (WebKit #179363) so manual single-lens steps open
+   strictly one at a time, while one-tap dual capture probes both streams per
+   phone and falls back to a single-stream lens switch, recording which mode ran;
+   <input type=file accept="image/jpeg" capture> gets JPEG out of the iOS camera;
+   Safari does not https-upgrade URLs typed in the address bar.
+   ===================================================================================== */
+
+const APP = { name: "stereo-measure", flavor: "capture", version: "1.1.0", schema: 1 };
+
+/* One descriptor per shot: replaces the per-role ternaries that used to be scattered
+   through the badge, the buttons, the manifest and the file names. */
+const ROLES = {
+  wide: { key: "wide", badge: "1× WIDE", want: "wide", roleLabel: "1x wide (main camera)",
+          fileBase: "wide", startBtn: "Start 1× camera", fileBtn: "Use iPhone Camera app instead" },
+  ultra: { key: "ultra", badge: "0.5× ULTRAWIDE", want: "ultra", roleLabel: "0.5x ultrawide",
+           fileBase: "ultra", startBtn: "Start 0.5× camera", fileBtn: "Use iPhone Camera app instead" }
+};
+const ROLE_ORDER = ["wide", "ultra"];   // capture order, manifest order, ZIP entry order
+
+/* Shooting rules: one source, rendered into the page and into the ZIP's README. */
+const RULES = [
+  { lead: "Distance:", page: "keep the object <b>20–60 cm</b> from the phone. Beyond ~1 m a 1.5 cm baseline is too weak for centimetres.",
+    zip: "object 20-60 cm from the phone (past ~1 m a 1.5 cm baseline is too weak)" },
+  { lead: "Same spot:", page: "the two photos must be from the same position. Move nothing but the lens — press both shutters within a second or two.",
+    zip: "both photos from the same position, a second or two apart" },
+  { lead: "Fill the frame:", page: "the object should span most of the guide box, and be fully inside it in <b>both</b> photos.",
+    zip: "object fills most of the frame and is fully inside it in both photos" },
+  { lead: "Same phone rotation:", page: "don't rotate the phone between the two shots; the baseline direction would rotate with it.",
+    zip: "same phone rotation for both shots (the baseline rotates with the phone)" },
+  { lead: "No zoom:", page: "never pinch or tap zoom. 1× and 0.5× mean the bare lenses.",
+    zip: "no digital zoom: 1x and 0.5x mean the bare lenses" },
+  { lead: "Light:", page: "soft, even light. Avoid specular highlights, shadows and see-through or mirror-like objects — they break every stereo matcher.",
+    zip: "soft even light; avoid specular highlights, shadows, mirrors, glass, transparent objects" },
+  { lead: "Add texture:", page: "a plain matte surface (paper, cloth, wood) behind the object gives the matcher something to latch onto.",
+    zip: "plain matte background behind the object (paper, cloth, wood)" },
+  { lead: "Hold still:", page: "you can tap-and-hold in the Camera app to lock focus/exposure; in live mode the page can lock them for you.",
+    zip: "hold still; lock focus/exposure where the app allows it" }
+];
+const WHY = "Why two lenses: with a calibrated pair the pipeline computes <code>depth = fx · baseline / disparity</code>, " +
+            "then <code>size = depth · width_px / fx</code> — that is how pixels become centimetres.";
+
+/* ================================== Util ================================== */
+const Util = {
+  $: (id) => document.getElementById(id),
+  show: (el, on) => el.classList.toggle("hidden", !on),
+  esc: (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])),
+  nowIso: () => new Date().toISOString(),
+  sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  pad2: (n) => String(n).padStart(2, "0"),
+  fmtBytes: (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"),
+  numOrNull: (v) => (typeof v === "number" && isFinite(v)) ? v : null,
+  hex: (buf) => Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join(""),
+  newId: () => (crypto.randomUUID ? crypto.randomUUID() : "s" + Date.now().toString(36) + Math.random().toString(36).slice(2)),
+  stamp: function () {
+    const d = new Date();
+    return d.getFullYear() + "-" + Util.pad2(d.getMonth() + 1) + "-" + Util.pad2(d.getDate()) + "_" +
+           Util.pad2(d.getHours()) + Util.pad2(d.getMinutes()) + Util.pad2(d.getSeconds());
+  },
+  sha256: function (bytes) {
+    if (crypto.subtle && crypto.subtle.digest) return crypto.subtle.digest("SHA-256", bytes).then(Util.hex).catch(() => null);
+    return Promise.resolve(null);
+  },
+  screenAngle: function () {
+    if (screen.orientation && typeof screen.orientation.angle === "number") return screen.orientation.angle;
+    if (typeof window.orientation === "number") return window.orientation;
+    return null;
+  },
+  secure: () => (window.isSecureContext === true) || location.protocol === "https:" ||
+                location.hostname === "localhost" || location.hostname === "127.0.0.1",
+  /* decode helpers for freshly captured blobs */
+  imageSize: function (blob) {
+    return new Promise(function (resolve) {
+      if (window.createImageBitmap) {
+        createImageBitmap(blob).then(function (bmp) { resolve({ w: bmp.width, h: bmp.height }); bmp.close && bmp.close(); })
+          .catch(function () { resolve({ w: null, h: null }); });
+        return;
+      }
+      const img = new Image(), url = URL.createObjectURL(blob);
+      img.onload = function () { resolve({ w: img.naturalWidth, h: img.naturalHeight }); URL.revokeObjectURL(url); };
+      img.onerror = function () { resolve({ w: null, h: null }); URL.revokeObjectURL(url); };
+      img.src = url;
+    });
+  },
+  // A frame that is entirely one colour means the sensor has not warmed up yet.
+  isBlankFrame: function (blob) {
+    return new Promise(function (resolve) {
+      const img = new Image(), url = URL.createObjectURL(blob);
+      img.onload = function () {
+        try {
+          const c = document.createElement("canvas");
+          c.width = 32; c.height = 32;
+          const ctx = c.getContext("2d");
+          ctx.drawImage(img, 0, 0, 32, 32);
+          const d = ctx.getImageData(0, 0, 32, 32).data;
+          let min = 255, max = 0;
+          for (let i = 0; i < d.length; i += 4) {
+            const lum = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+            if (lum < min) min = lum;
+            if (lum > max) max = lum;
+          }
+          resolve((max - min) < 12);
+        } catch (err) { resolve(false); }
+        finally { URL.revokeObjectURL(url); }
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); resolve(false); };
+      img.src = url;
+    });
+  }
+};
+const $ = Util.$;   // used heavily; a local alias keeps the view code readable
+
+/* ================================== Exif ==================================
+   JPEG/TIFF reader. Only the Camera-app path needs it: live frames are raw
+   pixels with no EXIF at all. Answers "which lens was this, and does the file
+   carry factory intrinsics (Apple stores them in the MakerNote)". */
+const Exif = {
+  TAG: {
+    0x010F: "Make", 0x0110: "Model", 0x0112: "Orientation", 0x0132: "DateTime",
+    0x8769: "ExifIFD", 0x8825: "GPSIFD", 0x927C: "MakerNote",
+    0xA433: "LensMake", 0xA434: "LensModel", 0xA435: "LensSerialNumber",
+    0x829A: "ExposureTime", 0x8827: "ISO", 0x9003: "DateTimeOriginal",
+    0x920A: "FocalLength", 0xA002: "PixelXDimension", 0xA003: "PixelYDimension",
+    0xA402: "ExposureMode", 0xA403: "WhiteBalance", 0xA405: "FocalLengthIn35mmFormat",
+    0xA406: "SceneCaptureType", 0xA420: "ImageUniqueID", 0x9291: "SubjectArea"
+  },
+  TYPE_SIZE: { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8 },
+
+  findSegment: function (bytes) {
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return null;
+    let p = 2;
+    while (p + 4 <= bytes.length) {
+      if (bytes[p] !== 0xFF) { p++; continue; }
+      const marker = bytes[p + 1];
+      if (marker === 0xFF) { p++; continue; }
+      if (marker === 0xD8 || marker === 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { p += 2; continue; }
+      if (marker === 0xDA || marker === 0xD9) return null;      // image data reached
+      const len = (bytes[p + 2] << 8) | bytes[p + 3];
+      if (len < 2) return null;
+      if (marker === 0xE1) {
+        const start = p + 4;
+        if (start + 6 <= bytes.length &&
+            bytes[start] === 0x45 && bytes[start + 1] === 0x78 && bytes[start + 2] === 0x69 &&
+            bytes[start + 3] === 0x66 && bytes[start + 4] === 0 && bytes[start + 5] === 0) {
+          return { tiff: bytes.subarray(start + 6, p + 2 + len) };
+        }
+      }
+      p += 2 + len;
+    }
+    return null;
+  },
+
+  parseTiff: function (tiff) {
+    if (!tiff || tiff.length < 8) return null;
+    const le = tiff[0] === 0x49 && tiff[1] === 0x49;
+    const be = tiff[0] === 0x4D && tiff[1] === 0x4D;
+    if (!le && !be) return null;
+    const dv = new DataView(tiff.buffer, tiff.byteOffset, tiff.byteLength);
+    const u16 = (o) => dv.getUint16(o, le);
+    const u32 = (o) => dv.getUint32(o, le);
+    const s32 = (o) => dv.getInt32(o, le);
+    if (u16(2) !== 42) return null;
+
+    const tags = {};
+    const makerNote = { present: false, bytes: 0, appleKeys: [] };
+
+    function readEntry(entryOff, into) {
+      const tag = u16(entryOff);
+      const type = u16(entryOff + 2);
+      const count = u32(entryOff + 4);
+      const size = Exif.TYPE_SIZE[type];
+      if (!size) return;
+      const total = size * count;
+      let vo = entryOff + 8;
+      if (total > 4) {
+        const ptr = u32(entryOff + 8);
+        if (ptr + total > tiff.length) return;
+        vo = ptr;
+      }
+      function num(i) {
+        const o = vo + i * size;
+        if (o + size > tiff.length) return null;
+        switch (type) {
+          case 1: case 2: case 7: return dv.getUint8(o);
+          case 3: return u16(o);
+          case 4: return u32(o);
+          case 5: return { n: u32(o), d: u32(o + 4), value: u32(o + 4) ? u32(o) / u32(o + 4) : null };
+          case 9: return s32(o);
+          case 10: return { n: s32(o), d: s32(o + 4), value: s32(o + 4) ? s32(o) / s32(o + 4) : null };
+          default: return null;
+        }
+      }
+      if (tag === 0x927C) {              // MakerNote: keep raw, look for Apple keys
+        makerNote.present = true;
+        makerNote.bytes = total;
+        try {
+          const chunk = tiff.subarray(vo, Math.min(vo + total, tiff.length));
+          const s = Array.prototype.map.call(chunk, (b) => String.fromCharCode(b)).join("");
+          ["LensIntrinsics", "LensDistortionCoefficients", "OpticalCenter",
+           "PixelSize", "LensMake", "LensModel", "AccelerationVector"].forEach(function (k) {
+            if (s.indexOf(k) !== -1) makerNote.appleKeys.push(k);
+          });
+          makerNote.hasAppleSignature = s.indexOf("Apple") !== -1;
+        } catch (err) { /* best effort only */ }
+        return;
+      }
+      let value;
+      if (type === 2) {                  // ASCII
+        try {
+          const bytes = tiff.subarray(vo, vo + Math.min(total, tiff.length));
+          value = Array.prototype.map.call(bytes, (b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : "")).join("").replace(/\u0000+$/, "").trim();
+        } catch (err) { value = null; }
+      } else if (count === 1) {
+        const v = num(0);
+        value = (v && typeof v === "object") ? v.value : v;
+        if (tag === 0x920A || tag === 0xA405) into[tag + "_raw"] = (v && typeof v === "object") ? v.n + "/" + v.d : v;
+      } else {
+        value = [];
+        for (let i = 0; i < count && i < 8; i++) {
+          const v = num(i);
+          value.push((v && typeof v === "object") ? v.value : v);
+        }
+      }
+      into[tag] = value;
+      tags[Exif.TAG[tag] || ("0x" + tag.toString(16))] = value;
+    }
+
+    function readIfd(off, into) {
+      if (off + 2 > tiff.length) return null;
+      const n = u16(off);
+      let sub = null;
+      for (let i = 0; i < n; i++) {
+        const eo = off + 2 + i * 12;
+        if (eo + 12 > tiff.length) break;
+        if (u16(eo) === 0x8769) sub = u32(eo + 8);
+        readEntry(eo, into);
+      }
+      const nextOff = off + 2 + n * 12;
+      return { next: nextOff + 4 <= tiff.length ? u32(nextOff) : null, sub: sub };
+    }
+
+    const ifd0 = {};
+    const r0 = readIfd(u32(4), ifd0);
+    const exif = {};
+    if (r0 && r0.sub) readIfd(r0.sub, exif);
+
+    // Tags are stored under their numeric code, so read them the same way.
+    const any = (t) => (exif[t] !== undefined ? exif[t] : (ifd0[t] !== undefined ? ifd0[t] : null));
+    const r3 = (v) => (typeof v === "number" && isFinite(v)) ? Math.round(v * 1000) / 1000 : null;
+
+    const focalRaw = exif[0x920A + "_raw"] || ifd0[0x920A + "_raw"];
+    let focalMm = null;
+    if (typeof focalRaw === "string") {
+      const bits = focalRaw.split("/");
+      const num = parseFloat(bits[0]);
+      const den = parseFloat(bits[1]);
+      focalMm = (isFinite(num) && den) ? num / den : null;
+    } else if (typeof focalRaw === "number") {
+      focalMm = focalRaw;
+    }
+    const focal35raw = exif[0xA405] !== undefined ? exif[0xA405] : ifd0[0xA405];
+    const focal35 = (typeof focal35raw === "number") ? focal35raw : (focal35raw ? parseFloat(focal35raw) : null);
+    const pxW = any(0xA002), pxH = any(0xA003);
+
+    return {
+      byteOrder: le ? "little" : "big",
+      make: any(0x010F),
+      model: any(0x0110),
+      orientation: any(0x0112),
+      dateTimeOriginal: any(0x9003),
+      lensMake: any(0xA433),
+      lensModel: any(0xA434),
+      focalLengthMm: r3(focalMm),
+      focalLength35mm: (typeof focal35 === "number" && isFinite(focal35)) ? focal35 : null,
+      cropFactor: (focalMm && focal35) ? Math.round((focal35 / focalMm) * 100) / 100 : null,
+      pixelXDimension: typeof pxW === "number" ? pxW : null,
+      pixelYDimension: typeof pxH === "number" ? pxH : null,
+      exposureTime: any(0x829A),
+      iso: any(0x8827),
+      exposureMode: any(0xA402),
+      whiteBalance: any(0xA403),
+      imageUniqueID: any(0xA420),
+      makerNote: makerNote,
+      allTags: tags
+    };
+  },
+
+  readFromBlob: async function (blob) {
+    try {
+      const head = await blob.slice(0, Math.min(blob.size, 640 * 1024)).arrayBuffer();
+      const seg = Exif.findSegment(new Uint8Array(head));
+      return seg ? Exif.parseTiff(seg.tiff) : null;
+    } catch (err) { return null; }
+  },
+
+  sniffContainer: function (bytes) {
+    if (bytes.length > 12 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+      const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
+      return /heic|heix|hevc|mif1|msf1|avif/i.test(brand) ? brand : "isobmff:" + brand;
+    }
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8) return "jpeg";
+    if (bytes[0] === 0x89 && bytes[1] === 0x50) return "png";
+    return "unknown";
+  }
+};
+
+/* ================================== Optics ==================================
+   What the phone actually states about the lens in use. getUserMedia reports no
+   focal length, sensor size or lens intrinsics, so every value here is either
+   taken verbatim from the track/file or recorded as null with the reason why.
+   Nothing is estimated. */
+const MM_IN_LABEL = /(\d+(?:[.,]\d+)?)\s*mm\b/gi;
+const MM_EQUIV_IN_LABEL = /(\d+(?:[.,]\d+)?)\s*mm\s*\(?\s*(?:35\s*mm[\s-]*)?(?:equiv|equivalent)/i;
+
+const Optics = {
+  parseLabel: function (label) {
+    const text = String(label || "");
+    const out = { focalLengthMm: null, focalLength35mm: null, source: null };
+    if (!text) return out;
+    let equivSpan = null;
+    const eq = text.match(MM_EQUIV_IN_LABEL);
+    if (eq) {
+      const v = parseFloat(eq[1].replace(",", "."));
+      if (v >= 1 && v <= 5000) { out.focalLength35mm = v; equivSpan = [eq.index, eq.index + eq[0].length]; }
+    }
+    MM_IN_LABEL.lastIndex = 0;          // the equivalent figure is not the physical one
+    let m;
+    while ((m = MM_IN_LABEL.exec(text)) !== null) {
+      if (equivSpan && m.index >= equivSpan[0] && m.index < equivSpan[1]) continue;
+      const v = parseFloat(m[1].replace(",", "."));
+      if (v >= 0.1 && v <= 500) { out.focalLengthMm = v; break; }
+    }
+    if (out.focalLengthMm != null || out.focalLength35mm != null) out.source = "MediaStreamTrack.label";
+    return out;
+  },
+
+  fromLiveTrack: function (track, device, settings, caps) {
+    const s = settings || {}, c = caps || {};
+    const n = Util.numOrNull;
+    const label = (track && track.label) || (device && device.label) || "";
+    const optics = Optics.parseLabel(label);
+    const kind = device ? { kind: device.kind, virtual: !!device.virtual } : Lenses.classifyDeviceLabel(label);
+    const zc = c.zoom || null;
+    const zoom = (n(s.zoom) != null || (zc && n(zc.max) != null))
+      ? { current: n(s.zoom), min: zc ? n(zc.min) : null, max: zc ? n(zc.max) : null,
+          step: zc ? n(zc.step) : null, source: "getSettings()/getCapabilities()" }
+      : null;
+    const unavailable = [];
+    if (optics.focalLengthMm == null) unavailable.push("focalLengthMm: not reported by getUserMedia for this lens");
+    if (optics.focalLength35mm == null) unavailable.push("focalLength35mm: not stated for this lens");
+    if (optics.focalLengthMm != null && optics.focalLength35mm == null) unavailable.push("cropFactor: withheld because the equivalent focal length is unknown");
+    if (optics.focalLength35mm != null && optics.focalLengthMm == null) unavailable.push("cropFactor: withheld because the physical focal length is unknown");
+    unavailable.push("opticalSizeMm (sensor size / pixel pitch): not exposed by the web camera API");
+    unavailable.push("intrinsics (focal length in px, principal point, lens distortion): not exposed by getUserMedia; the iOS Camera-app path can carry Apple's in the EXIF MakerNote");
+    return {
+      reportedBy: "MediaStreamTrack: label + getSettings() + getCapabilities()",
+      label: label,
+      deviceKind: kind.kind,
+      virtual: !!kind.virtual,
+      framePx: n(s.width) != null ? { width: n(s.width), height: n(s.height), source: "getSettings()" } : null,
+      maxFramePx: (c.width && n(c.width.max) != null) ? { width: n(c.width.max), height: (c.height ? n(c.height.max) : null), source: "getCapabilities()" } : null,
+      frameRateFps: n(s.frameRate),
+      aspectRatio: n(s.aspectRatio),
+      focalLengthMm: optics.focalLengthMm,
+      focalLength35mm: optics.focalLength35mm,
+      cropFactor: (optics.focalLengthMm && optics.focalLength35mm) ? Math.round((optics.focalLength35mm / optics.focalLengthMm) * 100) / 100 : null,
+      focalLengthSource: optics.source,
+      opticalSizeMm: null,
+      zoom: zoom,
+      unavailable: unavailable
+    };
+  },
+
+  fromExif: function (exif, kindInfo) {
+    const x = exif || {};
+    const n = Util.numOrNull;
+    const hasIntrinsics = ((x.makerNote || {}).appleKeys || []).some(function (k) { return /intrinsic|distortion/i.test(k); });
+    const fmm = n(x.focalLengthMm), f35 = n(x.focalLength35mm);
+    const unavailable = [];
+    if (fmm == null) unavailable.push("focalLengthMm: not present in this file's EXIF");
+    if (f35 == null) unavailable.push("focalLength35mm: not present in this file's EXIF");
+    unavailable.push("opticalSizeMm (sensor size / pixel pitch): not present in EXIF");
+    if (!hasIntrinsics) unavailable.push("intrinsics (focal length in px, principal point, lens distortion): no Apple MakerNote intrinsics found in this file");
+    unavailable.push("focus/exposure lock state: the iOS Camera app does not report it");
+    return {
+      reportedBy: "EXIF: LensModel / FocalLength / FocalLengthIn35mmFormat / PixelXDimension" + (hasIntrinsics ? " + Apple MakerNote intrinsics" : ""),
+      label: x.lensModel || x.model || "",
+      deviceKind: kindInfo ? kindInfo.kind : "unknown",
+      virtual: !!(kindInfo && kindInfo.virtual),
+      framePx: n(x.pixelXDimension) != null ? { width: x.pixelXDimension, height: n(x.pixelYDimension), source: "EXIF PixelXDimension/PixelYDimension" } : null,
+      maxFramePx: null,
+      frameRateFps: null,
+      aspectRatio: null,
+      focalLengthMm: fmm,
+      focalLength35mm: f35,
+      cropFactor: n(x.cropFactor),
+      focalLengthSource: (fmm != null || f35 != null) ? "EXIF" : null,
+      opticalSizeMm: null,
+      zoom: null,
+      unavailable: unavailable
+    };
+  },
+
+  /* The one place lens names are turned into words for the user. */
+  kindName: function (kind) {
+    return kind === "ultra" ? "0.5× ultrawide" : kind === "wide" ? "1× wide" : kind === "tele" ? "telephoto" :
+           kind === "virtual" ? "fused dual-wide" : kind === "front" ? "front camera" : "unknown";
+  }
+};
+
+/* ================================ Lenses ==================================
+   Two independent signals feed the same verdict language: what the device
+   label says (live) and what EXIF says (Camera app). */
+const Lenses = {
+  classifyDeviceLabel: function (label) {
+    const l = String(label || "").toLowerCase();
+    const isFront = /front|face|selfie/.test(l);
+    const isUltra = /ultra[\s-]?wide|ultrawide|0\.5/.test(l);
+    const isTele = /tele|telephoto|2x|3x|5x/.test(l);
+    const isVirtual = /dual|triple|virtual|quad/.test(l);
+    if (isFront) return { kind: "front", virtual: false };
+    if (isUltra) return { kind: "ultra", virtual: isVirtual };
+    if (isTele) return { kind: "tele", virtual: isVirtual };
+    if (isVirtual) return { kind: "virtual", virtual: true };
+    return { kind: "wide", virtual: false };
+  },
+
+  classifyExif: function (exif) {
+    if (!exif) return { kind: "unknown", reason: "no EXIF (live capture or stripped file)" };
+    const l = (String(exif.lensModel || "") + " " + String(exif.lensMake || "")).toLowerCase();
+    const f35 = exif.focalLength35mm;
+    if (/ultra[\s-]?wide|ultrawide/.test(l)) return { kind: "ultra", reason: "EXIF lens model says ultra wide", virtual: /dual|triple/.test(l) };
+    if (/\btele|telephoto/.test(l)) return { kind: "tele", reason: "EXIF lens model says telephoto" };
+    if (/dual wide|triple|virtual/.test(l)) return { kind: "virtual", reason: "EXIF lens model is the fused virtual camera", virtual: true };
+    if (f35 != null) {
+      if (f35 <= 18) return { kind: "ultra", reason: "focal length " + f35 + " mm (35 mm equiv) is ultrawide" };
+      if (f35 <= 40) return { kind: "wide", reason: "focal length " + f35 + " mm (35 mm equiv) is the main camera" };
+      return { kind: "tele", reason: "focal length " + f35 + " mm (35 mm equiv) is telephoto / digital zoom" };
+    }
+    if (/\bwide|back camera|rear/.test(l)) return { kind: "wide", reason: "EXIF lens model says wide" };
+    return { kind: "unknown", reason: "EXIF has no lens identifier" };
+  },
+
+  /* Is this the lens the step asked for? */
+  verdict: function (role, kindInfo) {
+    const want = ROLES[role].want;
+    const got = kindInfo.kind;
+    const label = ROLES[role].badge.toLowerCase();
+    if (got === want) return { level: "ok", title: "Correct lens: " + label, detail: kindInfo.reason || "" };
+    if (got === "unknown") {
+      return { level: "warn", title: "Can't confirm the lens",
+        detail: "No lens signature in this file — check the photo by eye and confirm it is the " + label + " one." };
+    }
+    if (got === "virtual") {
+      return { level: "warn", title: "That looks like the fused 'dual wide' camera, not one lens",
+        detail: "iOS produced this from a lens stack, so the geometry may not be a single optical centre. Prefer the physical " + label + " lens." };
+    }
+    if (got === "front") return { level: "err", title: "That is the front camera", detail: "Retake with the rear " + label + " lens." };
+    if (got === "tele") return { level: "err", title: "That is a telephoto / zoomed shot", detail: "Retake with the rear " + label + " lens and no digital zoom." };
+    return { level: "err", title: "Wrong lens: this looks like the " + Optics.kindName(got) + " camera",
+      detail: "You need the " + label + " lens for this step." };
+  }
+};
+
+/* ================================== Zip ===================================
+   Minimal ZIP writer: STORE (no compression) with correct CRC-32, UTF-8 flag
+   and a proper central directory. Photos are already compressed, so deflate
+   would only add risk. Verified against Python's zipfile. */
+const Zip = {
+  TABLE: (function () {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      t[n] = c >>> 0;
+    }
+    return t;
+  })(),
+
+  crc32: function (bytes) {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = Zip.TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  },
+
+  dosDateTime: function (d) {
+    return {
+      time: ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF,
+      date: (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF
+    };
+  },
+
+  build: function (entries, when) {
+    const enc = new TextEncoder();
+    const dt = Zip.dosDateTime(when || new Date());
+    const parts = [];
+    const central = [];
+    let offset = 0;
+
+    entries.forEach(function (e) {
+      const nameBytes = enc.encode(e.name);
+      const data = e.data instanceof Uint8Array ? e.data : new Uint8Array(e.data);
+      const crc = Zip.crc32(data);
+      const size = data.length;
+
+      const lh = new Uint8Array(30 + nameBytes.length);
+      const lv = new DataView(lh.buffer);
+      lv.setUint32(0, 0x04034b50, true);
+      lv.setUint16(4, 20, true);       // version needed: 2.0
+      lv.setUint16(6, 0x0800, true);   // general purpose flags: UTF-8 names
+      lv.setUint16(8, 0, true);        // method 0 = stored
+      lv.setUint16(10, dt.time, true);
+      lv.setUint16(12, dt.date, true);
+      lv.setUint32(14, crc, true);
+      lv.setUint32(18, size, true);    // compressed size
+      lv.setUint32(22, size, true);    // uncompressed size
+      lv.setUint16(26, nameBytes.length, true);
+      lv.setUint16(28, 0, true);       // extra length
+      lh.set(nameBytes, 30);
+
+      const ch = new Uint8Array(46 + nameBytes.length);
+      const cv = new DataView(ch.buffer);
+      cv.setUint32(0, 0x02014b50, true);
+      cv.setUint16(4, 20, true);       // version made by (MS-DOS / 2.0)
+      cv.setUint16(6, 20, true);
+      cv.setUint16(8, 0x0800, true);
+      cv.setUint16(10, 0, true);
+      cv.setUint16(12, dt.time, true);
+      cv.setUint16(14, dt.date, true);
+      cv.setUint32(16, crc, true);
+      cv.setUint32(20, size, true);
+      cv.setUint32(24, size, true);
+      cv.setUint16(28, nameBytes.length, true);
+      cv.setUint16(30, 0, true);       // extra
+      cv.setUint16(32, 0, true);       // comment
+      cv.setUint16(34, 0, true);       // disk number start
+      cv.setUint16(36, 0, true);       // internal attributes
+      cv.setUint32(38, 0, true);       // external attributes
+      cv.setUint32(42, offset, true);  // relative offset of local header
+      ch.set(nameBytes, 46);
+
+      parts.push(lh, data);
+      central.push(ch);
+      offset += lh.length + size;
+    });
+
+    const cdSize = central.reduce((a, p) => a + p.length, 0);
+    const eocd = new Uint8Array(22);
+    const ev = new DataView(eocd.buffer);
+    ev.setUint32(0, 0x06054b50, true);
+    ev.setUint16(4, 0, true);
+    ev.setUint16(6, 0, true);
+    ev.setUint16(8, entries.length, true);
+    ev.setUint16(10, entries.length, true);
+    ev.setUint32(12, cdSize, true);
+    ev.setUint32(16, offset, true);
+    ev.setUint16(20, 0, true);
+
+    return new Blob(parts.concat(central, [eocd]), { type: "application/zip" });
+  }
+};
+
+/* ================================== Store ==================================
+   Persistence, and its only writer. iOS reloads backgrounded tabs, so a field
+   shoot has to survive that. Key format is unchanged from earlier versions so
+   captures already on a phone still restore. */
+const Store = {
+  DB: "stereo-measure", TABLE: "shots", LABEL_KEY: "stereo-label",
+
+  db: function () {
+    return new Promise(function (res, rej) {
+      const r = indexedDB.open(Store.DB, 1);
+      r.onupgradeneeded = function () { r.result.createObjectStore(Store.TABLE, { keyPath: "key" }); };
+      r.onsuccess = function () { res(r.result); };
+      r.onerror = function () { rej(r.error); };
+    });
+  },
+  put: function (rec) {
+    return Store.db().then(function (db) {
+      return new Promise(function (res, rej) {
+        const tx = db.transaction(Store.TABLE, "readwrite");
+        tx.objectStore(Store.TABLE).put(rec);
+        tx.oncomplete = function () { res(true); };
+        tx.onerror = function () { rej(tx.error); };
+      });
+    }).catch(function () { return false; });
+  },
+  all: function () {
+    return Store.db().then(function (db) {
+      return new Promise(function (res, rej) {
+        const req = db.transaction(Store.TABLE, "readonly").objectStore(Store.TABLE).getAll();
+        req.onsuccess = function () { res(req.result || []); };
+        req.onerror = function () { rej(req.error); };
+      });
+    }).catch(function () { return []; });
+  },
+  clearAll: function () {
+    return Store.db().then(function (db) {
+      return new Promise(function (res) {
+        const tx = db.transaction(Store.TABLE, "readwrite");
+        tx.objectStore(Store.TABLE).clear();
+        tx.oncomplete = function () { res(true); };
+        tx.onerror = function () { res(false); };
+      });
+    }).catch(function () { return false; });
+  },
+
+  saveShot: function (session, role) {
+    const s = session.shots[role];
+    if (!s) return Promise.resolve(false);
+    return Store.put({ key: role + ":" + session.id, sessionId: session.id, role: role,
+                       blob: s.blob, meta: s.meta, createdAt: session.createdAt });
+  },
+  clearShot: function (session, role) {
+    return Store.put({ key: role + ":" + session.id, sessionId: session.id, role: role,
+                       blob: null, meta: null, createdAt: session.createdAt });
+  },
+  saveLabel: function (v) { try { localStorage.setItem(Store.LABEL_KEY, v); } catch (err) {} },
+  loadLabel: function () { try { return localStorage.getItem(Store.LABEL_KEY) || ""; } catch (err) { return ""; } }
+};
+
+/* ================================= Session =================================
+   The shoot. Owns the shots and the packaged archive, and is the only writer of
+   both — including invalidation, so no path can leave a stale ZIP behind. */
+const Session = {
+  id: null,
+  createdAt: null,
+  label: "",
+  shots: { wide: null, ultra: null },   // { blob, meta, url }
+  warnings: [],
+  packaged: null,                        // { blob, name, manifest }
+  duo: null,                             // { duoId, mode, wideAt, wideAtMs, ultraAt, ultraAtMs, interFrameMs } or null
+
+  reset: function () {
+    ROLE_ORDER.forEach(function (r) { Session.dropShot(r); });
+    Session.id = Util.newId();
+    Session.createdAt = Util.nowIso();
+    Session.warnings = [];
+    Session.duo = null;
+  },
+  setLabel: function (v) {
+    Session.label = String(v || "").trim();
+    Store.saveLabel(Session.label);
+    Session.invalidatePackage();
+  },
+  addShot: function (role, blob, meta) {
+    Session.dropShot(role);
+    Session.shots[role] = { blob: blob, meta: meta, url: URL.createObjectURL(blob) };
+    // Any single-shot write breaks a previous one-tap simultaneity claim.
+    // The duo path re-sets it explicitly after committing both shots.
+    Session.duo = null;
+    Session.invalidatePackage();
+  },
+  // Commit both duo shots atomically, then record how they were taken.
+  addDuoShots: function (wideBlob, wideMeta, ultraBlob, ultraMeta, duoInfo) {
+    Session.dropShot("wide");
+    Session.dropShot("ultra");
+    Session.shots.wide = { blob: wideBlob, meta: wideMeta, url: URL.createObjectURL(wideBlob) };
+    Session.shots.ultra = { blob: ultraBlob, meta: ultraMeta, url: URL.createObjectURL(ultraBlob) };
+    Session.duo = duoInfo || null;
+    Session.invalidatePackage();
+  },
+  setDuo: function (info) { Session.duo = info || null; Session.invalidatePackage(); },
+  clearDuo: function () { Session.duo = null; Session.invalidatePackage(); },
+  dropShot: function (role) {
+    const s = Session.shots[role];
+    if (s && s.url) URL.revokeObjectURL(s.url);
+    Session.shots[role] = null;
+  },
+  clearShot: function (role) {
+    Session.dropShot(role);
+    Session.duo = null;
+    Session.invalidatePackage();
+  },
+  warn: function (msg) { Session.warnings.push(msg); },
+  invalidatePackage: function () { Session.packaged = null; },
+  setPackaged: function (p) { Session.packaged = p; },
+  complete: function () { return !!(Session.shots.wide && Session.shots.ultra); }
+};
+
+/* ================================== Camera =================================
+   Device list, lens picks and the live stream. Single-lens steps open strictly
+   one at a time: iOS Safari breaks with two camera streams (WebKit #179363).
+   One-tap dual capture probes that limit per phone: it tries true parallel
+   first and falls back to a single-stream lens switch, recording which mode
+   actually ran. */
+const Camera = {
+  devices: [], back: [], hasLabels: false,
+  picks: { wide: null, ultra: null },
+  stream: null, role: null, track: null, lock: null, method: null,
+  duoStreams: [],
+
+  supported: () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+
+  refresh: async function () {
+    if (!Camera.supported()) return [];
+    try {
+      const list = await navigator.mediaDevices.enumerateDevices();
+      Camera.devices = list.filter((d) => d.kind === "videoinput").map(function (d) {
+        const info = Lenses.classifyDeviceLabel(d.label);
+        return { id: d.deviceId, label: d.label || "(unnamed — grant camera access to see labels)",
+                 group: d.groupId, kind: info.kind, virtual: info.virtual };
+      });
+      // A lens we cannot name is a lens we cannot identify; iOS keeps labels
+      // empty until camera permission has been granted.
+      Camera.back = Camera.devices.filter((d) => d.kind !== "front" && d.label !== "" &&
+                                                  d.label.indexOf("(unnamed") !== 0);
+      Camera.hasLabels = Camera.back.length > 0;
+    } catch (err) {
+      Session.warn("enumerateDevices failed: " + err.message);
+    }
+    return Camera.back;
+  },
+
+  // First run: ask for permission with a throwaway stream, release it, re-enumerate
+  // so the labels appear and the lenses can be told apart.
+  grant: async function () {
+    if (Camera.hasLabels) return true;
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      st.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
+      await Util.sleep(350);
+      await Camera.refresh();
+      return Camera.hasLabels;
+    } catch (err) {
+      Camera.lastError = err;
+      return false;
+    }
+  },
+
+  pick: function (role) {
+    const cams = Camera.back;
+    const physicalUltra = cams.find((c) => c.kind === "ultra" && !c.virtual);
+    const anyUltra = cams.find((c) => c.kind === "ultra");
+    const physicalWide = cams.find((c) => c.kind === "wide" && !c.virtual);
+    const virtualWide = cams.find((c) => c.kind === "virtual");
+    const fallback = cams.find((c) => c.kind === "wide" || c.kind === "unknown");
+    return role === "wide" ? (physicalWide || virtualWide || fallback || cams[0] || null)
+                           : (physicalUltra || anyUltra || null);
+  },
+
+  cycle: function (role) {
+    if (!Camera.back.length) return null;
+    const cur = Camera.picks[role];
+    const idx = cur ? Camera.back.findIndex((c) => c.id === cur.id) : -1;
+    const next = Camera.back[(idx + 1) % Camera.back.length];
+    Camera.picks[role] = next;
+    // never let both steps point at the same lens
+    ROLE_ORDER.forEach(function (other) {
+      if (other !== role && Camera.picks[other] && Camera.picks[other].id === next.id) Camera.picks[other] = null;
+    });
+    return next;
+  },
+
+  open: async function (role, deviceId) {
+    Camera.stop();
+    const video = View.els(role).video;
+    const constraints = {
+      audio: false,
+      video: deviceId
+        ? { deviceId: { exact: deviceId }, width: { ideal: 4032 }, height: { ideal: 3024 }, frameRate: { ideal: 30 } }
+        : { facingMode: { ideal: "environment" }, width: { ideal: 4032 }, height: { ideal: 3024 } }
+    };
+    let stream = null, lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { stream = await navigator.mediaDevices.getUserMedia(constraints); lastErr = null; break; }
+      catch (err) {
+        lastErr = err;
+        if (!/NotReadable|Abort|NotAllowed/i.test(err.name + err.message)) break;
+        await Util.sleep(320 + attempt * 320);   // iOS needs a beat after stopping the last lens
+      }
+    }
+    if (!stream) { Camera.lastError = lastErr; throw new Error(Camera.describeError(lastErr)); }
+
+    Camera.stream = stream;
+    Camera.role = role;
+    Camera.track = stream.getVideoTracks()[0];
+
+    if (role === "ultra") {   // ask for the biggest frame this lens will give
+      try { await Camera.track.applyConstraints({ width: { ideal: 4032 }, height: { ideal: 3024 } }); }
+      catch (err) { /* whatever the lens gives us is what we use */ }
+    }
+
+    video.srcObject = stream;
+    try { await video.play(); } catch (err) { /* autoplay may need another gesture; the stream is still valid */ }
+    await Camera.waitForFrame(video);
+
+    const settings = (Camera.track.getSettings ? Camera.track.getSettings() : {}) || {};
+    const caps = (Camera.track.getCapabilities ? Camera.track.getCapabilities() : {}) || {};
+    Camera.lock = await Camera.tryLock(Camera.track);
+    return { stream: stream, track: Camera.track, settings: settings, caps: caps };
+  },
+
+  stop: function () {
+    Camera.stopDuo();
+    if (Camera.stream) Camera.stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
+    try {
+      ROLE_ORDER.forEach(function (role) {
+        const v = View.els(role).video;
+        if (v && v.srcObject) { try { v.srcObject = null; } catch (e) {} }
+      });
+    } catch (err) { /* View may not be ready in console-driven tests */ }
+    Camera.stream = null;
+    Camera.track = null;
+    Camera.role = null;
+  },
+
+  stopDuo: function () {
+    (Camera.duoStreams || []).forEach(function (s) {
+      try { s.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} }); } catch (e) {}
+    });
+    Camera.duoStreams = [];
+  },
+
+  stopRaw: function (stream) {
+    try { stream && stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} }); } catch (e) {}
+    if (Camera.duoStreams) Camera.duoStreams = Camera.duoStreams.filter((s) => s !== stream);
+  },
+
+  // Low-level open that does NOT touch the single-stream singleton or the DOM.
+  // Returns { stream, track, settings, caps, lock }. Caller owns the stream and
+  // must stop it (stopRaw) or hand it to stopDuo for bulk cleanup.
+  openRaw: async function (deviceId) {
+    const constraints = {
+      audio: false,
+      video: deviceId
+        ? { deviceId: { exact: deviceId }, width: { ideal: 4032 }, height: { ideal: 3024 }, frameRate: { ideal: 30 } }
+        : { facingMode: { ideal: "environment" }, width: { ideal: 4032 }, height: { ideal: 3024 } }
+    };
+    let stream = null, lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { stream = await navigator.mediaDevices.getUserMedia(constraints); lastErr = null; break; }
+      catch (err) {
+        lastErr = err;
+        if (!/NotReadable|Abort|NotAllowed/i.test(err.name + err.message)) break;
+        await Util.sleep(320 + attempt * 320);
+      }
+    }
+    if (!stream) { Camera.lastError = lastErr; throw lastErr; }
+    Camera.duoStreams.push(stream);
+    const track = stream.getVideoTracks()[0];
+    const settings = (track && track.getSettings ? track.getSettings() : {}) || {};
+    const caps = (track && track.getCapabilities ? track.getCapabilities() : {}) || {};
+    const lock = await Camera.tryLock(track);
+    return { stream: stream, track: track, settings: settings, caps: caps, lock: lock };
+  },
+
+  makeOffscreenVideo: function () {
+    const v = document.createElement("video");
+    v.playsInline = true; v.muted = true; v.autoplay = true;
+    try { v.setAttribute("playsinline", ""); } catch (e) {}
+    return v;
+  },
+
+  attachAndWarm: async function (video, stream, timeoutMs) {
+    video.srcObject = stream;
+    try { await video.play(); } catch (err) { /* stream still valid */ }
+    return Camera.waitForFrame(video, timeoutMs || 6000);
+  },
+
+  isLive: function (track, video) {
+    try {
+      if (!track || track.readyState !== "live") return false;
+      if (track.muted) return false;
+      if (video && !(video.videoWidth > 0 && video.readyState >= 2)) return false;
+      return true;
+    } catch (e) { return false; }
+  },
+
+  // Grab a still from an arbitrary track/video (duo path). Same preference as
+  // the single-shot path: real still via ImageCapture when available, else a
+  // canvas frame grab. Does not touch Camera.stream/track.
+  grabFrom: async function (video, track) {
+    if (window.ImageCapture && track) {
+      try {
+        const ic = new ImageCapture(track);
+        if (typeof ic.takePhoto === "function") {
+          const blob = await ic.takePhoto();
+          if (blob && blob.size > 1024) {
+            Camera.method = "takePhoto";
+            return { blob: blob, via: "ImageCapture.takePhoto" };
+          }
+        }
+      } catch (err) { /* fall through to canvas */ }
+    }
+    Camera.method = Camera.method || "canvas";
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) throw new Error("No video frame yet — sensor not ready.");
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(video, 0, 0, w, h);
+    const blob = await new Promise(function (res, rej) {
+      canvas.toBlob(function (b) { b ? res(b) : rej(new Error("JPEG encoding failed")); }, "image/jpeg", 0.96);
+    });
+    return { blob: blob, via: "canvas", width: w, height: h };
+  },
+
+  // Resolve both lens picks, guaranteeing two different physical devices.
+  // Throws with a user-ready message when dual capture is impossible.
+  ensureDuoPicks: async function () {
+    await Camera.refresh();
+    if (!Camera.hasLabels) await Camera.grant();
+    await Camera.refresh();
+    if (!Camera.hasLabels) {
+      throw new Error("Camera access is needed before lenses can be told apart. Grant it, then tap again.");
+    }
+    let wide = Camera.picks.wide || Camera.pick("wide");
+    let ultra = Camera.picks.ultra || Camera.pick("ultra");
+    // Never reuse a stale pick that now points at the same device.
+    if (wide && ultra && wide.id === ultra.id) {
+      Camera.picks.wide = null; Camera.picks.ultra = null;
+      wide = Camera.pick("wide");
+      // Pick an ultra that is not the wide lens.
+      const alt = (Camera.back || []).find((c) => c.kind === "ultra" && c.id !== (wide && wide.id))
+        || (Camera.back || []).find((c) => c.id !== (wide && wide.id) && c.kind !== "front");
+      ultra = alt || null;
+    }
+    if (!wide) throw new Error("No back camera found.");
+    if (!ultra) {
+      throw new Error(Camera.back.length <= 1
+        ? "This phone/Safari exposes only one rear lens to web pages (iOS 16.3+ is needed for ultrawide access). Use the manual Camera-app steps below and tap 0.5× by hand."
+        : "No ultrawide lens was found among: " + Camera.back.map((c) => c.label).join(", ") + ". Use the manual steps below.");
+    }
+    if (wide.id === ultra.id) {
+      throw new Error("Both steps resolved to the same lens (" + wide.label + ") — dual capture refused. Tap 'Switch lens' in the manual steps to separate them, then try again.");
+    }
+    Camera.picks.wide = wide;
+    Camera.picks.ultra = ultra;
+    return { wide: wide, ultra: ultra };
+  },
+
+  // try to lock focus/exposure — focus breathing and AE drift both move intrinsics
+  tryLock: async function (track) {
+    const out = { focusMode: null, exposureMode: null, whiteBalanceMode: null, zoom: null, error: null };
+    if (!track || !track.applyConstraints) return out;
+    try {
+      await track.applyConstraints({ advanced: [{ focusMode: "manual" }, { exposureMode: "manual" }, { whiteBalanceMode: "manual" }] });
+      const s = track.getSettings ? track.getSettings() : {};
+      out.focusMode = s.focusMode || null;
+      out.exposureMode = s.exposureMode || null;
+      out.whiteBalanceMode = s.whiteBalanceMode || null;
+      out.zoom = (typeof s.zoom === "number") ? s.zoom : null;
+    } catch (err) { out.error = err.name + ": " + err.message; }
+    return out;
+  },
+
+  waitForFrame: function (video, timeoutMs) {
+    const limit = timeoutMs || 6000;
+    return new Promise(function (resolve) {
+      const started = Date.now();
+      function check() {
+        if (video.videoWidth > 0 && video.readyState >= 2) return resolve(true);
+        if (Date.now() - started > limit) return resolve(false);
+        requestAnimationFrame(check);
+      }
+      check();
+    });
+  },
+
+  // Prefer a real still capture when the browser implements it, else grab the frame.
+  grab: async function (role) {
+    const video = View.els(role).video;
+    const track = Camera.track;
+    if (Camera.method !== "canvas" && window.ImageCapture && track) {
+      try {
+        const ic = new ImageCapture(track);
+        if (typeof ic.takePhoto === "function") {
+          const blob = await ic.takePhoto();
+          if (blob && blob.size > 1024) {
+            Camera.method = "takePhoto";
+            return { blob: blob, via: "ImageCapture.takePhoto" };
+          }
+        }
+      } catch (err) {
+        if (!Camera.method) Session.warn("takePhoto unavailable (" + err.name + "), using video frame");
+      }
+    }
+    Camera.method = Camera.method || "canvas";
+    const w = video.videoWidth, h = video.videoHeight;
+    if (!w || !h) throw new Error("No video frame yet — wait a moment and tap the shutter again.");
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(video, 0, 0, w, h);
+    const blob = await new Promise(function (res, rej) {
+      canvas.toBlob(function (b) { b ? res(b) : rej(new Error("JPEG encoding failed")); }, "image/jpeg", 0.96);
+    });
+    return { blob: blob, via: "canvas", width: w, height: h };
+  },
+
+  describeError: function (err) {
+    if (!err) return "Camera did not start.";
+    const n = err.name || "Error";
+    if (n === "NotAllowedError") return "Camera permission denied. Allow camera access for this site (Settings ▸ Safari ▸ Camera, and the aA menu), then try again.";
+    if (n === "NotFoundError") return "No camera matched that lens. Tap 'Switch lens' to try another one.";
+    if (n === "NotReadableError") return "The camera is busy or was not released. Wait a second, then tap again.";
+    if (n === "OverconstrainedError") return "This phone will not open that lens with those settings (" + (err.constraint || "constraint") + ").";
+    return n + ": " + err.message;
+  }
+};
+
+/* ================================= Manifest =================================
+   A pure projection of the Session (plus the lens list the phone exposed).
+   No DOM, no mutation: given the same shots it produces the same JSON. */
+const Manifest = {
+  /* Did the pair come out usable? Returns {steps, warnings, deltaMs}. */
+  checks: function (session) {
+    const w = session.shots.wide, u = session.shots.ultra;
+    if (!w || !u) return { steps: [], warnings: [], deltaMs: null };
+    const list = [], warnings = [];
+    const wm = w.meta, um = u.meta;
+
+    // Same-lens rejection uses the strongest signal available: device ids first,
+    // then labels. Either match means no stereo baseline.
+    const idA = wm.deviceIdShort || null, idB = um.deviceIdShort || null;
+    const idsKnown = !!(idA && idB);
+    const idsDistinct = idsKnown ? (idA !== idB) : null;
+    const distinctLabel = wm.deviceLabel && um.deviceLabel && wm.deviceLabel !== um.deviceLabel;
+    const sameLens = (idsKnown && !idsDistinct) || (!idsKnown && !distinctLabel);
+    const lensesOk = !sameLens;
+    if (idsKnown) {
+      list.push({ ok: lensesOk, text: lensesOk ? "Two different lenses used (device ids differ)" : "Both shots came from the same lens (same device id) — no stereo baseline" });
+    } else {
+      list.push({ ok: !!distinctLabel, text: distinctLabel ? "Two different lenses used" : "Both shots appear to come from the same lens/device label" });
+    }
+    if (sameLens) {
+      warnings.push("Both shots used the same lens — the pair has no stereo baseline and must be retaken.");
+    }
+
+    const sameDir = wm.screenOrientation == null || um.screenOrientation == null || wm.screenOrientation === um.screenOrientation;
+    list.push({ ok: sameDir, text: sameDir ? "Phone kept the same rotation" : "Phone rotation changed between shots (" + wm.screenOrientation + "° → " + um.screenOrientation + "°)" });
+    if (!sameDir) warnings.push("Rotation changed between the two shots; the baseline direction rotated with the phone.");
+
+    const bothKinds = wm.deviceKind === "wide" && um.deviceKind === "ultra";
+    list.push({ ok: bothKinds, text: bothKinds ? "Lens verdicts match the plan (1× wide + 0.5× ultrawide)" : "Lens verdicts are not the expected 1× wide + 0.5× ultrawide pair" });
+    if (!bothKinds) warnings.push("Lens verdicts do not match 1x wide + 0.5x ultrawide — the measurement will be wrong.");
+
+    // Prefer ms-epoch stamps (one-tap path) over ISO parsing (manual path).
+    const t1 = (typeof wm.capturedAtMs === "number" && isFinite(wm.capturedAtMs)) ? wm.capturedAtMs : Date.parse(wm.capturedAt);
+    const t2 = (typeof um.capturedAtMs === "number" && isFinite(um.capturedAtMs)) ? um.capturedAtMs : Date.parse(um.capturedAt);
+    const dt = (isFinite(t1) && isFinite(t2)) ? Math.abs(t2 - t1) : null;
+    const duo = session.duo || wm.dualCapture || um.dualCapture || null;
+    const duoMode = (duo && duo.mode) || (wm.dualCapture && wm.dualCapture.mode) || null;
+    if (duoMode) {
+      const gap = (duo && typeof duo.interFrameMs === "number") ? duo.interFrameMs
+        : (typeof wm.dualCapture?.interFrameMs === "number" ? wm.dualCapture.interFrameMs : dt);
+      const gapTxt = (gap != null && isFinite(gap))
+        ? (gap < 1000 ? Math.round(gap) + " ms apart" : (gap / 1000).toFixed(1) + " s apart")
+        : "gap unknown";
+      if (duoMode === "parallel") {
+        list.push({ ok: true, text: "One-tap parallel capture: both lenses held open at once, " + gapTxt });
+      } else {
+        list.push({ ok: true, text: "One-tap single-stream switch (no parallel streams on this phone), " + gapTxt + " — keep the phone still" });
+        if (gap != null && gap >= 8000) warnings.push("The two photos were taken " + (gap / 1000).toFixed(1) + " s apart.");
+      }
+    } else if (dt != null) {
+      list.push({ ok: dt < 8000, text: "Captured " + (dt / 1000).toFixed(1) + " s apart (manual two-step capture)" + (dt < 8000 ? "" : " — the scene may have moved") });
+      if (dt >= 8000) warnings.push("The two photos were taken " + (dt / 1000).toFixed(1) + " s apart.");
+    }
+
+    if (wm.source !== um.source) {
+      list.push({ ok: true, text: "Mixed capture paths (live + Camera app) — allowed, but keep exposure/white balance in mind" });
+    }
+
+    const hasCalibrationData = !!(wm.exif || um.exif);
+    list.push({ ok: hasCalibrationData, text: hasCalibrationData ? "EXIF present (lens model / focal length available for the PC stage)" : "No EXIF in either file — the PC stage must rely on the lens labels in capture.json" });
+
+    return { steps: list, warnings: warnings, deltaMs: dt };
+  },
+
+  build: function (session, camera) {
+    const pair = Manifest.checks(session);
+    return {
+      schema: APP.schema,
+      app: APP.name + "/" + APP.flavor,
+      appVersion: APP.version,
+      generatedAt: Util.nowIso(),
+      sessionId: session.id,
+      sessionCreatedAt: session.createdAt,
+      objectLabel: session.label || null,
+      task: "estimate object size in cm from one 1x-wide + one 0.5x-ultrawide photo pair",
+      device: {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform || null,
+        vendor: navigator.vendor || null,
+        language: navigator.language || null,
+        screen: { width: screen.width, height: screen.height, dpr: window.devicePixelRatio || null, orientation: Util.screenAngle() },
+        standalone: !!(navigator.standalone || (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches)),
+        secureContext: Util.secure()
+      },
+      // Per-shot facts stay on the shot: a mixed pair (one lens live, one from the
+      // iOS Camera app) cannot be described by a single global value.
+      visibleBackLenses: camera.back.map((d) => ({ label: d.label, kind: d.kind, virtual: d.virtual, idTail: d.id.slice(-8) })),
+      shots: { wide: session.shots.wide ? session.shots.wide.meta : null,
+               ultra: session.shots.ultra ? session.shots.ultra.meta : null },
+      // One-tap simultaneity evidence: which mechanism actually ran and how far
+      // apart the two frames really landed. Null for manual two-step pairs.
+      // Modes: "parallel" (both lenses held open at once) or
+      // "single-stream-switch" (one stream, lens switched back-to-back).
+      // Falls back to the per-shot records so a reloaded pair keeps its claim.
+      dualCapture: (function () {
+        if (session.duo && session.duo.mode) {
+          return {
+            duoId: session.duo.duoId || null,
+            mode: session.duo.mode || null,
+            wideAt: session.duo.wideAt || null,
+            wideAtMs: (typeof session.duo.wideAtMs === "number") ? session.duo.wideAtMs : null,
+            ultraAt: session.duo.ultraAt || null,
+            ultraAtMs: (typeof session.duo.ultraAtMs === "number") ? session.duo.ultraAtMs : null,
+            interFrameMs: (typeof session.duo.interFrameMs === "number") ? session.duo.interFrameMs : null
+          };
+        }
+        try {
+          const wm = session.shots.wide && session.shots.wide.meta;
+          const um = session.shots.ultra && session.shots.ultra.meta;
+          const wd = wm && wm.dualCapture, ud = um && um.dualCapture;
+          if (wd && ud && wd.duoId && wd.duoId === ud.duoId && wd.mode) {
+            return {
+              duoId: wd.duoId,
+              mode: wd.mode,
+              wideAt: wm.capturedAt || null,
+              wideAtMs: (typeof wm.capturedAtMs === "number") ? wm.capturedAtMs : null,
+              ultraAt: um.capturedAt || null,
+              ultraAtMs: (typeof um.capturedAtMs === "number") ? um.capturedAtMs : null,
+              interFrameMs: (typeof wd.interFrameMs === "number") ? wd.interFrameMs : null
+            };
+          }
+        } catch (e) {}
+        return null;
+      })(),
+      checks: { steps: pair.steps, warnings: pair.warnings, deltaMs: pair.deltaMs },
+      warnings: session.warnings,
+      nextStepOnPC: [
+        "Unzip, then read capture.json: it names the lens behind each file and the capture conditions.",
+        "Undistort + rectify the pair (needs intrinsics; Camera-app shots may carry Apple lens intrinsics in the MakerNote).",
+        "Stereo-match (SGBM or a learned matcher), segment the object, then size = depth * width_px / fx."
+      ]
+    };
+  },
+
+  /* The archive's contents, in order. One definition, used by packer and README. */
+  entries: function (session) {
+    return ROLE_ORDER.filter((r) => session.shots[r]).map(function (role) {
+      return { name: Manifest.fileName(role, session.shots[role].meta), slice: role, text: null };
+    }).concat([{ name: "README.txt", slice: null, text: "readme" }]);
+  },
+
+  extOf: function (mime) {
+    return /png/.test(mime || "") ? "png" : /heic/.test(mime || "") ? "heic" : /avif/.test(mime || "") ? "avif" : "jpg";
+  },
+  fileName: function (role, meta) { return ROLES[role].fileBase + "." + Manifest.extOf(meta && meta.mime); },
+
+  readme: function (manifest) {
+    const w = manifest.shots.wide, u = manifest.shots.ultra;
+    const d = manifest.dualCapture;
+    const duoLine = d && d.mode
+      ? ("capture:  one-tap " + d.mode + " (" + (d.interFrameMs != null ? Math.round(d.interFrameMs) + " ms inter-frame" : "gap unknown") + ")")
+      : "capture:  manual two-step (see per-shot capturedAt)";
+    return [
+      "STEREO MEASURE - capture package",
+      "================================",
+      "",
+      "session:  " + manifest.sessionId,
+      "created:  " + manifest.sessionCreatedAt,
+      "object:   " + (manifest.objectLabel || "(not labelled)"),
+      "device:   " + ((w && w.deviceModel) || manifest.device.userAgent),
+      duoLine,
+      "",
+      "files",
+      "  wide.jpg   1x main/wide rear lens",
+      "               lens: " + ((w && w.deviceLabel) || "?") + "  " + ((w && w.width) ? w.width + "x" + w.height : ""),
+      "  ultra.jpg  0.5x ultrawide rear lens",
+      "               lens: " + ((u && u.deviceLabel) || "?") + "  " + ((u && u.width) ? u.width + "x" + u.height : ""),
+      "  capture.json  full metadata: per-shot lens optics (or null + the reason),",
+      "                pixel sizes, camera settings, capture path, timestamps, checks,",
+      "                dualCapture {mode, interFrameMs} + per-shot dualCapture record",
+      "",
+      "on the PC",
+      "  1. Unzip this folder anywhere.",
+      "  2. Keep the two images side by side - they are the stereo pair.",
+      "  3. Pipeline: undistort -> rectify -> stereo match -> segment -> size.",
+      "     depth = fx * baseline / disparity",
+      "     size  = depth * object_width_px / fx",
+      "  4. capture.json names the path behind each file (live-getUserMedia or",
+      "     ios-camera-app), what optics the phone did or did not report, whether",
+      "     real EXIF/lens intrinsics came with the file, and every warning raised",
+      "     on the phone. Optics reported as null could not be measured there.",
+      "",
+      "shooting rules that make or break a measurement:"
+    ].concat(RULES.map((r) => "  " + r.zip)).join("\n");
+  }
+};
+
+/* =================================== View ===================================
+   The only place that writes the DOM. One entry point: View.render(). */
+const EL = {};
+const View = {
+  els: function (role) {
+    if (EL[role]) return EL[role];
+    const k = ROLES[role].key;
+    EL[role] = {
+      card: $("card-" + k), stage: $("stage-" + k), video: $("video-" + k), badge: $("badge-" + k),
+      foot: $("foot-" + k), go: $("go-" + k), shutWrap: $("shut-wrap-" + k), shut: $("shut-" + k),
+      liveRow: $("row-" + k + "-live"), switchLens: $("switch-" + k), stop: $("stop-" + k),
+      fileBtn: $("file-" + k), input: $("input-" + k), thumb: $("thumb-" + k),
+      chips: $("chips-" + k), verdict: $("verdict-" + k), retake: $("retake-" + k)
+    };
+    return EL[role];
+  },
+
+  /* ---- render() and its parts: each reads state, writes DOM, holds nothing ---- */
+  render: function () {
+    View.rules();
+    View.pills();
+    View.steps();
+    ROLE_ORDER.forEach(View.shot);
+    View.duo();
+    View.review();
+  },
+
+  duoBusy: function (label) {
+    const btn = $("go-duo");
+    if (!btn) return;
+    btn.disabled = !!label;
+    btn.innerHTML = label ? '<span class="spin"></span>' + Util.esc(label) : "Capture both lenses at once";
+  },
+
+  duoNote: function (level, title, detail) {
+    const el = $("verdict-duo");
+    if (!el) return;
+    el.className = "verdict " + (level === "ok" ? "ok" : level === "warn" ? "warn" : "err");
+    el.innerHTML = "<b>" + Util.esc(title) + "</b>" + (detail ? '<span class="hint">' + Util.esc(detail) + "</span>" : "");
+    Util.show(el, true);
+  },
+
+  duoClear: function () {
+    const v = $("verdict-duo"), c = $("chips-duo");
+    if (v) Util.show(v, false);
+    if (c) Util.show(c, false);
+  },
+
+  // One-tap status: names the mechanism that actually ran, never claims more.
+  duo: function () {
+    const chips = $("chips-duo");
+    if (!chips) return;
+    const d = Session.duo;
+    if (!d) {
+      // Keep a manual error/warning note if one is already shown; otherwise hide.
+      if (Session.complete() && !Session.duo) {
+        const w = Session.shots.wide && Session.shots.wide.meta;
+        const u = Session.shots.ultra && Session.shots.ultra.meta;
+        const bothLive = w && u && w.source === "live-getUserMedia" && u.source === "live-getUserMedia";
+        if (bothLive) {
+          chips.innerHTML = '<span class="chip">mode <b>manual two-step</b></span>';
+          Util.show(chips, true);
+        }
+      }
+      return;
+    }
+    const gapTxt = (typeof d.interFrameMs === "number" && isFinite(d.interFrameMs))
+      ? (d.interFrameMs < 1000 ? Math.round(d.interFrameMs) + " ms" : (d.interFrameMs / 1000).toFixed(1) + " s")
+      : "gap unknown";
+    const modeTxt = d.mode === "parallel" ? "parallel (both open)" : "single-stream switch";
+    chips.innerHTML = [
+      '<span class="chip">mode <b>' + Util.esc(modeTxt) + "</b></span>",
+      '<span class="chip">gap <b>' + Util.esc(gapTxt) + "</b></span>",
+      '<span class="chip">duo <b>' + Util.esc(String(d.duoId || "").slice(0, 8)) + "</b></span>"
+    ].join("");
+    Util.show(chips, true);
+  },
+
+  rules: function () {
+    $("tips").innerHTML = RULES.map((r) => "<li><b>" + r.lead + "</b> " + r.page + "</li>").join("");
+    $("why").innerHTML = "<li>" + WHY + "</li>";
+  },
+
+  pills: function () {
+    const pills = [];
+    pills.push(Util.secure() ? { cls: "ok", text: "secure context ✓" } : { cls: "err", text: "not HTTPS — live camera unavailable" });
+    if (Camera.supported()) {
+      const backCount = Camera.devices.filter((d) => d.kind !== "front").length;
+      const ultra = Camera.back.some((d) => d.kind === "ultra");
+      if (!Camera.hasLabels) pills.push({ cls: "warn", text: "camera access not granted yet" });
+      else pills.push({ cls: ultra ? "ok" : "warn", text: backCount + " back lens" + (backCount === 1 ? "" : "es") + " visible" + (ultra ? " ✓" : " (no ultrawide!)") });
+      pills.push({ cls: "ok", text: Camera.method === "takePhoto" ? "ImageCapture.takePhoto ✓" : (Camera.method === "canvas" ? "video-frame grab" : "ImageCapture " + (window.ImageCapture ? "detected" : "absent")) });
+    } else {
+      pills.push({ cls: "warn", text: "no getUserMedia — use Camera-app mode" });
+    }
+    pills.push({ cls: "", text: "session " + String(Session.id || "").slice(0, 8) });
+    $("pills").innerHTML = pills.map((p) => '<span class="pill ' + p.cls + '">' + Util.esc(p.text) + "</span>").join("");
+  },
+
+  steps: function () {
+    $("p1").className = Session.shots.wide ? "on" : "";
+    $("p2").className = Session.shots.ultra ? "on" : "";
+    $("p3").className = Session.packaged ? "on" : "";
+    Util.show($("card-ultra"), !!(Session.shots.wide || Session.shots.ultra));
+    Util.show($("card-zip"), Session.complete());
+  },
+
+  /* The lens badge is the promise of this page: it must always name the lens
+     actually in use, so it is written in exactly one place. */
+  badge: function (role) {
+    const els = View.els(role);
+    const live = Camera.stream && Camera.role === role;
+    if (live) {
+      const label = (Camera.track && Camera.track.label) || (Camera.picks[role] && Camera.picks[role].label) || "selected lens";
+      els.badge.className = "lensbadge live";
+      els.badge.innerHTML = '<span class="dot"></span><span class="txt">' + Util.esc(ROLES[role].badge) + " — " + Util.esc(label) + "</span>";
+      const s = Camera.track && Camera.track.getSettings ? Camera.track.getSettings() : {};
+      els.foot.textContent = s && s.width ? s.width + "×" + s.height : "";
+      return;
+    }
+    els.badge.className = "lensbadge";
+    els.badge.innerHTML = '<span class="dot"></span><span class="txt">camera idle</span>';
+    els.foot.textContent = "";
+  },
+
+  shot: function (role) {
+    const els = View.els(role);
+    const s = Session.shots[role];
+    View.badge(role);
+    Util.show(els.shutWrap, !!(Camera.stream && Camera.role === role));
+    Util.show(els.liveRow, !!(Camera.stream && Camera.role === role));
+    els.shut.disabled = !(Camera.stream && Camera.role === role);
+    els.go.textContent = Camera.stream && Camera.role === role
+      ? "Restart " + (role === "wide" ? "1×" : "0.5×") + " camera"
+      : ROLES[role].startBtn;
+
+    if (!s) {
+      Util.show(els.thumb, false); Util.show(els.chips, false);
+      Util.show(els.verdict, false); Util.show(els.retake, false);
+      return;
+    }
+    els.thumb.src = s.url;
+    Util.show(els.thumb, true);
+
+    const m = s.meta;
+    const rows = [
+      ["lens", m.deviceLabel || "—"],
+      ["size", (m.width && m.height ? m.width + "×" + m.height : "?") + " · " + Util.fmtBytes(m.bytes)],
+      ["via", m.captureMethod],
+      ["shot at", String(m.capturedAt).replace("T", " ").replace("Z", " UTC")]
+    ];
+    if (m.dualCapture && m.dualCapture.mode) {
+      const g = m.dualCapture.interFrameMs;
+      rows.push(["one-tap", m.dualCapture.mode + (typeof g === "number" ? " · " + Math.round(g) + " ms gap" : "")]);
+    }
+    const fmm = (m.lens && m.lens.focalLengthMm) || (m.exif && m.exif.focalLengthMm) || null;
+    const f35 = (m.lens && m.lens.focalLength35mm) || (m.exif && m.exif.focalLength35mm) || null;
+    if (fmm) rows.push(["focal", fmm + " mm" + (f35 ? " (" + f35 + " mm equiv)" : "")]);
+    else if (m.lens && m.lens.focalLengthSource === null) rows.push(["focal", "not reported by the phone"]);
+    if (m.exif && m.exif.orientation != null) rows.push(["EXIF orientation", String(m.exif.orientation)]);
+    if (m.exif && m.exif.makerNote && m.exif.makerNote.present) {
+      rows.push(["Apple MakerNote", Util.fmtBytes(m.exif.makerNote.bytes) +
+        (m.exif.makerNote.appleKeys.length ? " · " + m.exif.makerNote.appleKeys.join(", ") : "")]);
+    }
+    els.chips.innerHTML = rows.map((r) => '<span class="chip">' + Util.esc(r[0]) + " <b>" + Util.esc(r[1]) + "</b></span>").join("");
+    Util.show(els.chips, true);
+    View.note(role, m.verdict);
+    Util.show(els.retake, true);
+  },
+
+  note: function (role, v) {
+    const el = View.els(role).verdict;
+    el.className = "verdict " + (v.level === "ok" ? "ok" : v.level === "warn" ? "warn" : "err");
+    el.innerHTML = "<b>" + Util.esc(v.title) + "</b>" + (v.detail ? '<span class="hint">' + Util.esc(v.detail) + "</span>" : "");
+    Util.show(el, true);
+  },
+
+  busy: function (role, label) {
+    const els = View.els(role);
+    els.go.disabled = !!label;
+    els.go.innerHTML = label ? '<span class="spin"></span>' + Util.esc(label) : ROLES[role].startBtn;
+  },
+
+  review: function () {
+    if (!Session.complete()) return;
+    const w = Session.shots.wide, u = Session.shots.ultra;
+    $("zip-thumb-wide").src = w.url;
+    $("zip-thumb-ultra").src = u.url;
+    $("zip-cap-wide").textContent = "1× wide · " + (w.meta.width ? w.meta.width + "×" + w.meta.height : "");
+    $("zip-cap-ultra").textContent = "0.5× ultrawide · " + (u.meta.width ? u.meta.width + "×" + u.meta.height : "");
+    const duoChip = Session.duo && Session.duo.mode
+      ? [[Session.duo.mode === "parallel" ? "parallel" : "switch",
+           (typeof Session.duo.interFrameMs === "number" ? Math.round(Session.duo.interFrameMs) + " ms" : "gap?")]]
+      : [["capture", "manual two-step"]];
+    $("zip-chips").innerHTML = [
+      ["lenses", (w.meta.deviceLabel || "?").slice(0, 26) + " + " + (u.meta.deviceLabel || "?").slice(0, 26)],
+      ["total", Util.fmtBytes(w.meta.bytes + u.meta.bytes)],
+      ["object", Session.label || "not labelled"]
+    ].concat(duoChip).map((c) => '<span class="chip">' + Util.esc(c[0]) + " <b>" + Util.esc(c[1]) + "</b></span>").join("");
+
+    const pair = Manifest.checks(Session);
+    const problems = pair.steps.filter((x) => !x.ok);
+    const el = $("zip-verdict");
+    if (problems.length) {
+      el.className = "verdict warn";
+      el.innerHTML = "<b>Worth a look before you measure</b>" + problems.map((p) => '<span class="hint">• ' + Util.esc(p.text) + "</span>").join("");
+    } else {
+      el.className = "verdict ok";
+      el.innerHTML = "<b>Pair looks good</b>" + pair.steps.map((p) => '<span class="hint">✓ ' + Util.esc(p.text) + "</span>").join("");
+    }
+  },
+
+  hint: function (text) { $("zip-hint").textContent = text; }
+};
+
+/* ================================== Capture =================================
+   The user's flow. Moves data between Camera/Session and View; holds no state. */
+const Capture = {
+  isSecure: Util.secure,
+
+  start: async function (role) {
+    if (!Util.secure()) {
+      View.note(role, { level: "err", title: "Live camera needs HTTPS",
+        detail: "This page is served insecurely, so Safari hides the camera API. Use 'Use iPhone Camera app instead' below, or open the page from its https:// address." });
+      return;
+    }
+    if (!Camera.supported()) {
+      View.note(role, { level: "err", title: "No camera API in this browser",
+        detail: "Use the 'Use iPhone Camera app instead' button below — the photo path still works." });
+      return;
+    }
+    View.busy(role, "Starting camera…");
+    try {
+      await Camera.refresh();
+      if (!Camera.hasLabels) await Camera.grant();     // first run: prompt, then labels appear
+      View.render();
+
+      let dev = Camera.picks[role];
+      if (!dev) {
+        dev = Camera.pick(role);
+        if (!dev) {
+          if (!Camera.hasLabels) throw new Error("Camera access is needed before this page can tell which lens is which. Grant it in the prompt, then tap again. (" + Camera.describeError(Camera.lastError) + ")");
+          if (role === "ultra") {
+            throw new Error(Camera.back.length <= 1
+              ? "This phone/Safari exposes only one rear lens to web pages (iOS 16.3+ is needed for ultrawide access). Use 'Use iPhone Camera app instead' and tap 0.5× there."
+              : "No ultrawide lens was found among: " + Camera.back.map((c) => c.label).join(", ") + ". Use the Camera-app path, or tap 'Switch lens'.");
+          }
+          throw new Error("No back camera found.");
+        }
+        Camera.picks[role] = dev;
+      }
+
+      const opened = await Camera.open(role, dev.id);
+      View.render();
+
+      const kind = Lenses.classifyDeviceLabel(opened.track.label || dev.label);
+      if (kind.kind !== ROLES[role].want) {
+        View.note(role, { level: "warn", title: "Lens check: this is the " + Optics.kindName(kind.kind),
+          detail: "You wanted the " + ROLES[role].badge.toLowerCase() + ". Tap 'Switch lens' to cycle the rear lenses, or shoot anyway if you know better — the badge above shows exactly which lens is live." });
+      } else {
+        View.note(role, { level: "ok", title: "Live: " + Optics.kindName(kind.kind) + " lens (" + (opened.track.label || dev.label) + ")",
+          detail: "Frame the object, then tap the shutter." });
+      }
+      if (Camera.picks.wide && Camera.picks.ultra && Camera.picks.wide.id === Camera.picks.ultra.id) {
+        View.note(role, { level: "err", title: "Both steps are pointed at the same lens",
+          detail: "Tap 'Switch lens' for this step: the pair is worthless without two different lenses." });
+      }
+    } catch (err) {
+      View.note(role, { level: "err", title: "Could not start the camera", detail: err.message });
+    } finally {
+      View.busy(role, null);
+      View.render();
+    }
+  },
+
+  switchLens: async function (role) {
+    if (!Camera.back.length) {
+      View.note(role, { level: "warn", title: "No rear lenses listed yet", detail: "Start a camera first so the page can enumerate them." });
+      return;
+    }
+    const next = Camera.cycle(role);
+    try { await Camera.open(role, next.id); }
+    catch (err) { View.note(role, { level: "err", title: "Could not open " + next.label, detail: err.message }); return; }
+    const kind = Lenses.classifyDeviceLabel(next.label);
+    View.render();
+    View.note(role, {
+      level: kind.kind === ROLES[role].want ? "ok" : "warn",
+      title: "Now using: " + next.label,
+      detail: "Classified as " + Optics.kindName(kind.kind) + ". Keep tapping 'Switch lens' until the badge shows the lens you need."
+    });
+  },
+
+  /* One tap → two shots. The phone decides how: true parallel when Safari can
+     hold both rear streams, otherwise a single-stream lens switch back-to-back.
+     The mode that actually ran (plus the real inter-frame gap) is recorded on
+     every shot and in capture.json — simultaneity is never claimed, only
+     measured. Same-lens outcomes are refused outright. */
+  captureBoth: async function () {
+    if (!Util.secure()) {
+      View.duoNote("err", "Live camera needs HTTPS",
+        "This page is served insecurely, so Safari hides the camera API. Use the manual Camera-app steps below, or open the page from its https:// address.");
+      return;
+    }
+    if (!Camera.supported()) {
+      View.duoNote("err", "No camera API in this browser",
+        "Use the manual Camera-app steps below — the photo path still works.");
+      return;
+    }
+    View.duoBusy("Locating lenses…");
+    Camera.stop();
+    try {
+      const picks = await Camera.ensureDuoPicks();
+      View.render();
+      const duoId = Util.newId();
+      View.duoBusy("Opening both lenses…");
+
+      let result = null, parallelError = null;
+      try {
+        result = await Capture._captureParallel(picks.wide, picks.ultra, duoId);
+      } catch (err) {
+        parallelError = err;
+      }
+      if (!result) {
+        View.duoBusy("Parallel unavailable — switching lens…");
+        result = await Capture._captureSwitch(picks.wide, picks.ultra, duoId);
+        if (parallelError) {
+          result.parallelError = (parallelError && parallelError.message) || String(parallelError);
+        }
+      }
+
+      // Same-lens rejection on the frames actually captured, not just the picks.
+      const wLabel = (result.wide.track && result.wide.track.label) || picks.wide.label || "";
+      const uLabel = (result.ultra.track && result.ultra.track.label) || picks.ultra.label || "";
+      if (picks.wide.id === picks.ultra.id || (wLabel && uLabel && wLabel === uLabel)) {
+        throw new Error("Both frames came from the same lens (" + (wLabel || "unknown") + ") — pair refused. Separate the lenses, then try again.");
+      }
+
+      const inter = result.interFrameMs;
+      const duoInfo = {
+        duoId: duoId,
+        mode: result.mode,
+        wideAt: result.wide.at,
+        wideAtMs: result.wide.atMs,
+        ultraAt: result.ultra.at,
+        ultraAtMs: result.ultra.atMs,
+        interFrameMs: inter,
+        parallelError: result.parallelError || null
+      };
+      const wideMeta = Capture._buildDuoMeta("wide", picks.wide, result.wide, duoInfo);
+      const ultraMeta = Capture._buildDuoMeta("ultra", picks.ultra, result.ultra, duoInfo);
+
+      // Verdicts must match the plan, otherwise refuse rather than store a lie.
+      const wv = Lenses.verdict("wide", { kind: picks.wide.kind, virtual: picks.wide.virtual });
+      const uv = Lenses.verdict("ultra", { kind: picks.ultra.kind, virtual: picks.ultra.virtual });
+      wideMeta.verdict = wv;
+      ultraMeta.verdict = uv;
+      if (wv.level === "err" || uv.level === "err") {
+        throw new Error("Lens check failed (" + wv.title + " / " + uv.title + "). Use 'Switch lens' in the manual steps or the Camera-app path.");
+      }
+
+      Session.addDuoShots(result.wide.blob, wideMeta, result.ultra.blob, ultraMeta, duoInfo);
+      await Store.saveShot(Session, "wide");
+      await Store.saveShot(Session, "ultra");
+      if (Session.complete() && !Session.packaged) {
+        try { await Capture.pack(); } catch (err) { Session.warn("pre-package failed: " + err.message); }
+      }
+      View.render();
+      const gapTxt = (typeof inter === "number" && isFinite(inter))
+        ? (inter < 1000 ? Math.round(inter) + " ms apart" : (inter / 1000).toFixed(1) + " s apart")
+        : "gap unknown";
+      if (result.mode === "parallel") {
+        View.duoNote("ok", "Captured both lenses at once — parallel (" + gapTxt + ")",
+          "Wide: " + wLabel + " · Ultra: " + uLabel + ". Gaps and lenses are in capture.json for the PC stage.");
+      } else {
+        View.duoNote("ok", "Captured both lenses in one tap — single-stream switch (" + gapTxt + ")",
+          "This phone would not hold both streams at once" +
+          (result.parallelError ? " (" + result.parallelError + ")" : "") +
+          ", so the lens was switched back-to-back with no second press. Wide: " + wLabel + " · Ultra: " + uLabel + ".");
+      }
+      View.render();
+      if (Session.complete()) $("card-zip").scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (err) {
+      Camera.stopDuo();
+      View.duoNote("err", "One-tap capture failed", (err && err.message) || String(err));
+      View.render();
+    } finally {
+      Camera.stop();
+      View.duoBusy(null);
+      View.render();
+    }
+  },
+
+  _captureParallel: async function (wideDev, ultraDev, duoId) {
+    Camera.stop();
+    Camera.stopDuo();
+    const vW = Camera.makeOffscreenVideo();
+    const vU = Camera.makeOffscreenVideo();
+    let rawW = null, rawU = null;
+    try {
+      const opened = await Promise.all([Camera.openRaw(wideDev.id), Camera.openRaw(ultraDev.id)]);
+      rawW = opened[0]; rawU = opened[1];
+      const warmed = await Promise.all([
+        Camera.attachAndWarm(vW, rawW.stream, 6000),
+        Camera.attachAndWarm(vU, rawU.stream, 6000)
+      ]);
+      if (!warmed[0] || !warmed[1]) throw new Error("one lens produced no frames while both were open");
+      if (!Camera.isLive(rawW.track, vW)) throw new Error("wide stream died when ultrawide opened");
+      if (!Camera.isLive(rawU.track, vU)) throw new Error("ultrawide stream died when wide opened");
+      // Timed grabs: each stamps its own completion so the gap is measured, not assumed.
+      let atMsW = null, atW = null, atMsU = null, atU = null;
+      const pW = Camera.grabFrom(vW, rawW.track).then(function (g) { atMsW = Date.now(); atW = Util.nowIso(); return g; });
+      const pU = Camera.grabFrom(vU, rawU.track).then(function (g) { atMsU = Date.now(); atU = Util.nowIso(); return g; });
+      const grabbed = await Promise.all([pW, pU]);
+      const gW = grabbed[0], gU = grabbed[1];
+      if (await Util.isBlankFrame(gW.blob)) throw new Error("wide frame came back blank while both lenses were open");
+      if (await Util.isBlankFrame(gU.blob)) throw new Error("ultrawide frame came back blank while both lenses were open");
+      if (!Camera.isLive(rawW.track, vW) || !Camera.isLive(rawU.track, vU)) {
+        throw new Error("a stream died during parallel capture");
+      }
+      const dW = await Util.imageSize(gW.blob), dU = await Util.imageSize(gU.blob);
+      const inter = (atMsW != null && atMsU != null) ? Math.abs(atMsU - atMsW) : null;
+      return {
+        mode: "parallel",
+        wide: { blob: gW.blob, via: gW.via, dims: dW, track: rawW.track, settings: rawW.settings, caps: rawW.caps, lock: rawW.lock, at: atW, atMs: atMsW },
+        ultra: { blob: gU.blob, via: gU.via, dims: dU, track: rawU.track, settings: rawU.settings, caps: rawU.caps, lock: rawU.lock, at: atU, atMs: atMsU },
+        interFrameMs: inter
+      };
+    } finally {
+      try { vW.srcObject = null; } catch (e) {}
+      try { vU.srcObject = null; } catch (e) {}
+    }
+  },
+
+  _captureSwitch: async function (wideDev, ultraDev, duoId) {
+    Camera.stop();
+    Camera.stopDuo();
+    await Util.sleep(250);
+    // Wide first: it is the primary measurement camera.
+    const rawW = await Camera.openRaw(wideDev.id).catch(function (err) { throw new Error(Camera.describeError(err)); });
+    const vW = Camera.makeOffscreenVideo();
+    try {
+      await Camera.attachAndWarm(vW, rawW.stream, 6000);
+      if (!Camera.isLive(rawW.track, vW)) throw new Error("wide lens produced no live frame");
+      const gW = await Camera.grabFrom(vW, rawW.track);
+      const atMsW = Date.now(), atW = Util.nowIso();
+      if (await Util.isBlankFrame(gW.blob)) throw new Error("wide frame came back blank — hold steady and try again");
+      const dW = await Util.imageSize(gW.blob);
+      const wideCap = { blob: gW.blob, via: gW.via, dims: dW, track: rawW.track, settings: rawW.settings, caps: rawW.caps, lock: rawW.lock, at: atW, atMs: atMsW };
+      try { vW.srcObject = null; } catch (e) {}
+      Camera.stopRaw(rawW.stream);
+      await Util.sleep(280);   // iOS needs a beat after stopping one lens before the next opens
+      const rawU = await Camera.openRaw(ultraDev.id).catch(function (err) { throw new Error(Camera.describeError(err)); });
+      const vU = Camera.makeOffscreenVideo();
+      await Camera.attachAndWarm(vU, rawU.stream, 6000);
+      if (!Camera.isLive(rawU.track, vU)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide lens produced no live frame"); }
+      const gU = await Camera.grabFrom(vU, rawU.track);
+      const atMsU = Date.now(), atU = Util.nowIso();
+      if (await Util.isBlankFrame(gU.blob)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide frame came back blank — hold steady and try again"); }
+      const dU = await Util.imageSize(gU.blob);
+      const ultraCap = { blob: gU.blob, via: gU.via, dims: dU, track: rawU.track, settings: rawU.settings, caps: rawU.caps, lock: rawU.lock, at: atU, atMs: atMsU };
+      try { vU.srcObject = null; } catch (e) {}
+      return {
+        mode: "single-stream-switch",
+        wide: wideCap,
+        ultra: ultraCap,
+        interFrameMs: Math.abs(atMsU - atMsW)
+      };
+    } catch (err) {
+      try { vW.srcObject = null; } catch (e) {}
+      Camera.stopDuo();
+      throw err;
+    }
+  },
+
+  _buildDuoMeta: function (role, dev, cap, duoInfo) {
+    const track = cap.track || null;
+    const settings = cap.settings || {};
+    const caps = cap.caps || {};
+    const dims = cap.dims || {};
+    const modeLabel = duoInfo.mode === "parallel" ? "parallel" : "single-stream-switch";
+    const kindInfo = { kind: dev.kind, virtual: !!dev.virtual, reason: "device label: " + dev.label };
+    return {
+      role: role,
+      roleLabel: ROLES[role].roleLabel,
+      source: "live-getUserMedia",
+      captureMethod: "one-tap dual (" + modeLabel + ") via " + (cap.via || "video frame"),
+      capturedAt: cap.at,
+      capturedAtMs: cap.atMs,
+      mime: (cap.blob && cap.blob.type) || "image/jpeg",
+      bytes: cap.blob ? cap.blob.size : 0,
+      width: (typeof dims.w === "number") ? dims.w : null,
+      height: (typeof dims.h === "number") ? dims.h : null,
+      deviceLabel: dev.label || (track && track.label) || "",
+      deviceKind: kindInfo.kind,
+      deviceVirtual: !!kindInfo.virtual,
+      deviceIdShort: dev.id ? dev.id.slice(-8) : (settings.deviceId ? String(settings.deviceId).slice(-8) : null),
+      trackLabel: (track && track.label) || null,
+      trackSettings: settings,
+      trackCapabilities: caps,
+      lens: Optics.fromLiveTrack(track, dev, settings, caps),
+      lockApplied: cap.lock || null,
+      screenOrientation: Util.screenAngle(),
+      exif: null,
+      verdict: Lenses.verdict(role, kindInfo),
+      dualCapture: {
+        duoId: duoInfo.duoId,
+        mode: duoInfo.mode,
+        interFrameMs: duoInfo.interFrameMs,
+        siblingRole: role === "wide" ? "ultra" : "wide"
+      }
+    };
+  },
+
+  shoot: async function (role) {
+    const els = View.els(role);
+    if (!Camera.stream || !Camera.track) return;
+    els.shut.disabled = true;
+    const track = Camera.track;
+    const dev = Camera.devices.find((d) => d.id === (track.getSettings ? track.getSettings().deviceId : null)) || null;
+    try {
+      const grabbed = await Camera.grab(role);
+      if (await Util.isBlankFrame(grabbed.blob)) {
+        View.note(role, { level: "warn", title: "That frame looks blank", detail: "The sensor may still be warming up. Hold steady and tap the shutter again." });
+        View.render();
+        return;
+      }
+      const dims = await Util.imageSize(grabbed.blob);
+      const settings = track.getSettings ? track.getSettings() : {};
+      const caps = track.getCapabilities ? track.getCapabilities() : {};
+      const kindInfo = dev
+        ? { kind: dev.kind, virtual: dev.virtual, reason: "device label: " + dev.label }
+        : Object.assign({}, Lenses.classifyDeviceLabel(track.label),
+            { reason: "device label: " + (track.label || "(the track reports no label)") });
+
+      Session.addShot(role, grabbed.blob, {
+        role: role,
+        roleLabel: ROLES[role].roleLabel,
+        source: "live-getUserMedia",
+        captureMethod: grabbed.via,
+        capturedAt: Util.nowIso(),
+        mime: grabbed.blob.type || "image/jpeg",
+        bytes: grabbed.blob.size,
+        width: dims.w, height: dims.h,
+        deviceLabel: dev ? dev.label : (track.label || ""),
+        deviceKind: kindInfo.kind,
+        deviceVirtual: !!kindInfo.virtual,
+        deviceIdShort: dev ? dev.id.slice(-8) : (settings.deviceId ? String(settings.deviceId).slice(-8) : null),
+        trackSettings: settings,
+        trackCapabilities: caps,
+        lens: Optics.fromLiveTrack(track, dev, settings, caps),
+        lockApplied: Camera.lock,
+        screenOrientation: Util.screenAngle(),
+        exif: null,
+        verdict: Lenses.verdict(role, kindInfo)
+      });
+      Camera.stop();
+      await Store.saveShot(Session, role);
+      Capture.advance(role);
+    } catch (err) {
+      View.note(role, { level: "err", title: "Capture failed", detail: err.message });
+      View.render();
+    }
+  },
+
+  useFile: async function (role, file) {
+    if (!file) return;
+    const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    const container = Exif.sniffContainer(head);
+    const exif = container === "jpeg" ? await Exif.readFromBlob(file) : null;
+    const dims = await Util.imageSize(file);
+    const kindInfo = exif ? Lenses.classifyExif(exif)
+      : { kind: "unknown", reason: container === "jpeg" ? "no lens signature in EXIF"
+        : "container is " + container + ", EXIF not parsed in-page" };
+
+    const meta = {
+      role: role,
+      roleLabel: ROLES[role].roleLabel,
+      source: "ios-camera-app",
+      captureMethod: "ios camera app (file input)",
+      capturedAt: Util.nowIso(),
+      mime: file.type || "image/" + (container === "jpeg" ? "jpeg" : container),
+      bytes: file.size,
+      width: dims.w, height: dims.h,
+      container: container,
+      deviceLabel: exif && exif.lensModel ? exif.lensModel : (exif && exif.model ? exif.model : "(unknown)"),
+      deviceKind: kindInfo.kind,
+      deviceVirtual: !!kindInfo.virtual,
+      deviceIdShort: null,
+      deviceModel: exif ? exif.model : null,
+      screenOrientation: Util.screenAngle(),
+      exifOrientation: exif ? exif.orientation : null,
+      lens: Optics.fromExif(exif, kindInfo),
+      lockApplied: null,               // the iOS Camera app owns focus/exposure and does not report the state
+      exif: exif,
+      verdict: Lenses.verdict(role, kindInfo)
+    };
+    if (container !== "jpeg") {
+      meta.notes = "Non-JPEG container (" + container + "). The PC stage will need HEIC/AVIF support; re-shoot if JPEG is possible.";
+      Session.warn("A shot arrived as " + container + " instead of JPEG.");
+    }
+    Session.addShot(role, file, meta);
+    await Store.saveShot(Session, role);
+    Capture.advance(role);
+  },
+
+  advance: function (role) {
+    View.render();
+    // Package eagerly: iOS only allows navigator.share() inside a short window
+    // after the tap, so the click handler must not have to wait for the ZIP.
+    if (Session.complete() && !Session.packaged) Capture.pack().catch(function (err) { Session.warn("pre-package failed: " + err.message); });
+    View.render();
+    if (role === "wide" && !Session.shots.ultra) $("card-ultra").scrollIntoView({ behavior: "smooth", block: "start" });
+    else if (Session.complete()) $("card-zip").scrollIntoView({ behavior: "smooth", block: "start" });
+  },
+
+  retake: async function (role) {
+    Session.clearShot(role);
+    await Store.clearShot(Session, role);
+    Camera.stop();
+    View.duoClear();
+    View.render();
+    // A retaken half-pair is no longer a one-tap pair: keep the honesty chip gone.
+    if (Session.complete()) View.render();
+  },
+
+  newShoot: async function () {
+    Camera.stop();
+    await Store.clearAll();
+    Session.reset();
+    View.duoClear();
+    View.render();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  },
+
+  setLabel: function (text) {
+    Session.setLabel(text);
+    View.steps();
+    if (Session.complete()) Capture.pack().then(View.steps).catch(function () {});
+  },
+
+  /* Build the archive from Session + Manifest. The only writer of Session.packaged. */
+  pack: async function () {
+    if (!Session.complete()) throw new Error("Nothing captured yet.");
+    const manifest = Manifest.build(Session, Camera);
+    const enc = new TextEncoder();
+    const files = [];
+
+    for (const role of ROLE_ORDER) {
+      const shot = Session.shots[role];
+      if (!shot) continue;
+      const bytes = new Uint8Array(await shot.blob.arrayBuffer());
+      shot.meta.fileName = Manifest.fileName(role, shot.meta);
+      const digest = await Util.sha256(bytes);
+      if (digest) shot.meta.sha256 = digest;
+      files.push({ name: shot.meta.fileName, data: bytes });
+    }
+    files.push({ name: "README.txt", data: enc.encode(Manifest.readme(manifest)) });
+    // capture.json is written last, so it cannot record its own byte size — say so
+    // rather than listing only the images and under-reporting the archive.
+    manifest.zip = {
+      entries: files.map((f) => ({ name: f.name, bytes: f.data.length })).concat([{ name: "capture.json", bytes: null }]),
+      note: "every member of this archive; capture.json's own size is null because this file is written last"
+    };
+    files.push({ name: "capture.json", data: enc.encode(JSON.stringify(manifest, null, 2)) });
+
+    const blob = Zip.build(files, new Date());
+    const packed = { blob: blob, name: "stereo-shoot_" + Util.stamp() + ".zip", manifest: manifest };
+    Session.setPackaged(packed);
+    return packed;
+  },
+
+  download: async function () {
+    try {
+      const btn = $("dl-zip");
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>Packaging…';
+      const p = Session.packaged || await Capture.pack();
+      View.steps();
+      const url = URL.createObjectURL(p.blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = p.name;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { a.remove(); URL.revokeObjectURL(url); }, 60000);
+      View.hint("Downloaded " + p.name + " (" + Util.fmtBytes(p.blob.size) + "). Safari puts it in Files ▸ Downloads — that single file is everything the PC needs.");
+      btn.disabled = false; btn.textContent = "Download ZIP again";
+    } catch (err) {
+      View.hint("Could not build the ZIP: " + err.message);
+      $("dl-zip").disabled = false; $("dl-zip").textContent = "Download ZIP";
+    }
+  },
+
+  shareZip: async function () {
+    try {
+      const p = Session.packaged || await Capture.pack();
+      const file = new File([p.blob], p.name, { type: "application/zip" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "Stereo shoot", text: "1x wide + 0.5x ultrawide pair" });
+        View.hint("Shared. AirDrop to the PC, or save it into Files.");
+      } else {
+        View.hint("This browser can't share files — use Download ZIP instead.");
+      }
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+      View.hint("Share failed: " + err.message);
+    }
+  },
+
+  sharePhotos: async function () {
+    try {
+      const files = ROLE_ORDER.filter((r) => Session.shots[r]).map(function (role) {
+        const s = Session.shots[role];
+        return new File([s.blob], Manifest.fileName(role, s.meta), { type: s.meta.mime || "image/jpeg" });
+      });
+      if (!files.length) return;
+      if (navigator.canShare && navigator.canShare({ files: files })) {
+        await navigator.share({ files: files, title: "Stereo pair" });
+      } else {
+        View.hint("File sharing is unavailable here — use Download ZIP.");
+      }
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+      View.hint("Share failed: " + err.message);
+    }
+  }
+};
+
+/* =================================== Diag ===================================
+   Evidence for a real device: what this exact phone and Safari expose. */
+const Diag = {
+  last: null,
+
+  run: async function () {
+    const out = $("diag-out");
+    out.textContent = "probing…";
+    const report = {
+      at: Util.nowIso(),
+      secureContext: window.isSecureContext === true,
+      protocol: location.protocol,
+      href: location.href,
+      mediaDevices: Camera.supported(),
+      imageCaptureApi: !!window.ImageCapture,
+      takePhotoAvailable: !!(window.ImageCapture && window.ImageCapture.prototype && window.ImageCapture.prototype.takePhoto),
+      getUserMediaSupported: Camera.supported(),
+      permissionsApi: !!navigator.permissions,
+      devices: [],
+      grabTests: []
+    };
+
+    try {
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      st.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
+      await Util.sleep(400);
+      report.permissionGranted = true;
+    } catch (err) {
+      report.permissionGranted = false;
+      report.permissionError = err.name + ": " + err.message;
+    }
+    await Camera.refresh();
+    report.devices = Camera.devices.map((d) => ({ label: d.label, kind: d.kind, virtual: d.virtual,
+      idTail: d.id.slice(-8), groupTail: (d.group || "").slice(-8) }));
+
+    // open each back lens briefly and record what it really gives us
+    for (const cam of Camera.back) {
+      const entry = { label: cam.label, kind: cam.kind };
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false, video: { deviceId: { exact: cam.id }, width: { ideal: 4032 }, height: { ideal: 3024 } } });
+        const track = stream.getVideoTracks()[0];
+        const v = document.createElement("video");
+        v.playsInline = true; v.muted = true; v.autoplay = true;
+        v.srcObject = stream;
+        try { await v.play(); } catch (e) {}
+        await Camera.waitForFrame(v, 4000);
+        entry.settings = (track.getSettings ? track.getSettings() : null);
+        entry.capabilities = (track.getCapabilities ? track.getCapabilities() : null);
+        entry.trackLabel = track.label;
+        let blob = null, via = null;
+        try {
+          if (Camera.method !== "canvas" && window.ImageCapture && typeof new ImageCapture(track).takePhoto === "function") {
+            blob = await new ImageCapture(track).takePhoto();
+            via = "ImageCapture.takePhoto";
+          }
+        } catch (e) { /* fall back to a frame grab */ }
+        if (!blob) {
+          try {
+            const c = document.createElement("canvas");
+            c.width = v.videoWidth; c.height = v.videoHeight;
+            c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+            blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.9));
+            via = "canvas frame grab";
+          } catch (e) { entry.grabError = e.message; }
+        }
+        if (blob) {
+          const d = await Util.imageSize(blob);
+          entry.stillPixels = d.w + "x" + d.h;
+          entry.stillBytes = blob.size;
+          entry.grabVia = via;
+        }
+        stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
+        try { v.srcObject = null; } catch (e) {}
+        await Util.sleep(350);
+      } catch (err) {
+        entry.openError = err.name + ": " + err.message;
+      }
+      report.grabTests.push(entry);
+    }
+
+    // One-tap capability probe: can this phone hold wide + ultrawide open at once?
+    // This is the same mechanism Capture.captureBoth tries first. A failure here
+    // predicts the single-stream-switch fallback (WebKit #179363 behaviour).
+    report.parallelProbe = null;
+    try {
+      const wideDev = Camera.back.find((c) => c.kind === "wide" && !c.virtual) || Camera.back.find((c) => c.kind === "wide");
+      const ultraDev = Camera.back.find((c) => c.kind === "ultra" && !c.virtual) || Camera.back.find((c) => c.kind === "ultra");
+      if (wideDev && ultraDev && wideDev.id !== ultraDev.id) {
+        const probe = { wide: wideDev.label, ultra: ultraDev.label, heldBoth: false };
+        let sW = null, sU = null, vW = null, vU = null;
+        try {
+          const opened = await Promise.all([
+            navigator.mediaDevices.getUserMedia({ audio: false, video: { deviceId: { exact: wideDev.id } } }),
+            navigator.mediaDevices.getUserMedia({ audio: false, video: { deviceId: { exact: ultraDev.id } } })
+          ]);
+          sW = opened[0]; sU = opened[1];
+          vW = document.createElement("video"); vW.muted = true; vW.playsInline = true;
+          vU = document.createElement("video"); vU.muted = true; vU.playsInline = true;
+          vW.srcObject = sW; vU.srcObject = sU;
+          try { await Promise.all([vW.play().catch(function () {}), vU.play().catch(function () {})]); } catch (e) {}
+          await Promise.all([Camera.waitForFrame(vW, 4000), Camera.waitForFrame(vU, 4000)]);
+          const tW = sW.getVideoTracks()[0], tU = sU.getVideoTracks()[0];
+          probe.wideLive = !!(tW && tW.readyState === "live" && vW.videoWidth > 0);
+          probe.ultraLive = !!(tU && tU.readyState === "live" && vU.videoWidth > 0);
+          probe.wideTrackLabel = tW ? tW.label : null;
+          probe.ultraTrackLabel = tU ? tU.label : null;
+          probe.heldBoth = !!(probe.wideLive && probe.ultraLive);
+          probe.mode = probe.heldBoth ? "parallel" : "single-stream-switch";
+        } catch (err) {
+          probe.error = (err && err.name ? err.name + ": " : "") + (err && err.message ? err.message : String(err));
+          probe.mode = "single-stream-switch";
+          probe.heldBoth = false;
+        } finally {
+          try { sW && sW.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} }); } catch (e) {}
+          try { sU && sU.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} }); } catch (e) {}
+          try { vW && (vW.srcObject = null); } catch (e) {}
+          try { vU && (vU.srcObject = null); } catch (e) {}
+          await Util.sleep(350);
+        }
+        report.parallelProbe = probe;
+      } else {
+        report.parallelProbe = { heldBoth: false, mode: null, note: "need two distinct back lenses to probe" };
+      }
+    } catch (err) {
+      report.parallelProbe = { heldBoth: false, mode: null, error: err.message };
+    }
+
+    report.faceCount = Camera.back.length;
+    report.hasPhysicalUltrawide = Camera.back.some((c) => c.kind === "ultra" && !c.virtual);
+    report.oneTapMode = report.parallelProbe && report.parallelProbe.heldBoth ? "parallel"
+      : (report.parallelProbe && report.parallelProbe.mode) || null;
+    report.verdict = !report.secureContext ? "Not a secure context: no live camera possible on this origin."
+      : !report.permissionGranted ? "Camera permission was refused — allow it in the aA menu ▸ Website Settings."
+      : report.hasPhysicalUltrawide && report.parallelProbe && report.parallelProbe.heldBoth
+        ? "One-tap parallel capture should work: both rear lenses stayed open at once."
+      : report.hasPhysicalUltrawide
+        ? "One-tap capture will use single-stream switch: a physical ultrawide is addressable but both streams would not stay open."
+      : "No separate ultrawide lens is exposed to the page — use the iPhone Camera-app path (tap 0.5× by hand).";
+    Diag.last = report;
+    out.textContent = JSON.stringify(report, null, 2);
+    View.render();
+    return report;
+  },
+
+  copy: async function () {
+    const txt = JSON.stringify(Diag.last || { note: "not run" }, null, 2);
+    try { await navigator.clipboard.writeText(txt); $("diag-out").textContent = txt + "\n\n(copied to clipboard)"; }
+    catch (e) { $("diag-out").textContent = txt; }
+  }
+};
+
+/* ================================ wiring ================================= */
+function wire() {
+  ROLE_ORDER.forEach(function (role) {
+    const els = View.els(role);
+    els.go.addEventListener("click", () => Capture.start(role));
+    els.shut.addEventListener("click", () => Capture.shoot(role));
+    els.switchLens.addEventListener("click", () => Capture.switchLens(role));
+    els.stop.addEventListener("click", function () { Camera.stop(); View.render(); });
+    els.fileBtn.addEventListener("click", () => els.input.click());
+    els.input.addEventListener("change", (e) => { Capture.useFile(role, e.target.files[0]); e.target.value = ""; });
+    els.retake.addEventListener("click", () => Capture.retake(role));
+  });
+
+  const duoBtn = $("go-duo");
+  if (duoBtn) duoBtn.addEventListener("click", Capture.captureBoth);
+
+  $("objlabel").addEventListener("input", (e) => Capture.setLabel(e.target.value));
+  $("dl-zip").addEventListener("click", Capture.download);
+  $("share-zip").addEventListener("click", Capture.shareZip);
+  $("share-files").addEventListener("click", Capture.sharePhotos);
+  $("new-shoot").addEventListener("click", Capture.newShoot);
+  $("probe").addEventListener("click", Diag.run);
+  $("copy-diag").addEventListener("click", Diag.copy);
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) return;
+    Camera.stop();
+    View.render();
+  });
+}
+
+/* Restore the shots kept in this tab's storage, so an iOS tab reload mid-shoot
+   does not lose the photos. Keeps the newest session only. */
+async function restore() {
+  const rows = await Store.all();
+  if (!rows.length) return false;
+  const sessions = {};
+  rows.forEach(function (r) { if (r.sessionId) sessions[r.sessionId] = r.createdAt || ""; });
+  const ids = Object.keys(sessions).sort((a, b) => String(sessions[b]).localeCompare(String(sessions[a])));
+  if (!ids.length) return false;
+  const latest = ids[0];
+  let got = 0;
+  rows.filter((r) => r.sessionId === latest).forEach(function (r) {
+    if (!r.blob || !r.role) return;
+    Session.shots[r.role] = { blob: r.blob, meta: r.meta, url: URL.createObjectURL(r.blob) };
+    got++;
+  });
+  if (!got) return false;
+  Session.id = latest;
+  Session.createdAt = sessions[latest] || Util.nowIso();
+  // Rebuild the one-tap claim from the per-shot records (the only copy that
+  // survives a reload). Mismatched or missing duoIds mean a manual pair.
+  try {
+    const wm = Session.shots.wide && Session.shots.wide.meta;
+    const um = Session.shots.ultra && Session.shots.ultra.meta;
+    const wd = wm && wm.dualCapture, ud = um && um.dualCapture;
+    if (wd && ud && wd.duoId && wd.duoId === ud.duoId && wd.mode && wd.mode === ud.mode) {
+      Session.duo = {
+        duoId: wd.duoId,
+        mode: wd.mode,
+        wideAt: wm.capturedAt || null,
+        wideAtMs: (typeof wm.capturedAtMs === "number") ? wm.capturedAtMs : null,
+        ultraAt: um.capturedAt || null,
+        ultraAtMs: (typeof um.capturedAtMs === "number") ? um.capturedAtMs : null,
+        interFrameMs: (typeof wd.interFrameMs === "number") ? wd.interFrameMs : null
+      };
+    } else {
+      Session.duo = null;
+    }
+  } catch (e) { Session.duo = null; }
+  Session.warn("Restored " + got + " shot(s) from this tab's storage after a reload.");
+  return true;
+}
+
+async function main() {
+  Session.reset();
+  const saved = Store.loadLabel();
+  if (saved) { $("objlabel").value = saved; Session.label = saved; }
+  wire();
+  View.render();
+
+  const restored = await restore();
+  View.render();
+  View.hint(restored
+    ? "Recovered your earlier shoot from this tab's storage. You can download the ZIP again below."
+    : "Nothing leaves this phone until you download or share.");
+
+  if (!Util.secure()) {
+    View.note("wide", { level: "warn", title: "This page is not on HTTPS",
+      detail: "Safari only exposes the camera on secure origins. The iPhone Camera-app path still works, but the live dual-lens capture does not." });
+  }
+  if (Camera.supported()) Camera.refresh().then(View.render);
+}
+
+/* Debug hook: the pure core and the two state owners, so the whole pipeline can be
+   driven from a console (including with a stubbed camera) without touching the DOM. */
+window.__stereo = {
+  APP: APP, ROLES: ROLES, RULES: RULES,
+  Util: Util, Exif: Exif, Optics: Optics, Lenses: Lenses, Zip: Zip, Store: Store,
+  Session: Session, Camera: Camera, Manifest: Manifest, View: View, Capture: Capture, Diag: Diag,
+  // flat aliases kept for console convenience and existing test scripts
+  state: Session, session: Session, camera: Camera,
+  buildZip: Zip.build, crc32: Zip.crc32,
+  parseTiff: Exif.parseTiff, findExifSegment: Exif.findSegment, readExifFromBlob: Exif.readFromBlob,
+  sniffContainer: Exif.sniffContainer,
+  classifyExif: Lenses.classifyExif, classifyDeviceLabel: Lenses.classifyDeviceLabel, roleVerdict: Lenses.verdict,
+  parseOpticsFromLabel: Optics.parseLabel, liveLensRecord: Optics.fromLiveTrack, stillLensRecord: Optics.fromExif,
+  checkPair: Manifest.checks, buildManifest: Manifest.build, buildExport: Capture.pack,
+  probeCameras: Diag.run,
+  captureBoth: Capture.captureBoth
+};
+
+main();
+</script>
+</body>
+</html>
