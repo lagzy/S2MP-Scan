@@ -1,1 +1,1 @@
-# SMP-Scan
+# S2MP-Scan
