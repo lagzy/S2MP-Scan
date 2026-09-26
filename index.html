@@ -1092,7 +1092,10 @@ const Camera = {
       catch (err) {
         lastErr = err;
         if (!/NotReadable|Abort|NotAllowed/i.test(err.name + err.message)) break;
-        await Util.sleep(320 + attempt * 320);   // iOS needs a beat after stopping the last lens
+        // iOS needs a short beat after stopping one lens before the next opens so the
+        // hardware releases; 150ms retains that beat while cutting idle. Below ~120ms
+        // risks NotReadableError on lens switch; larger only adds handheld gap.
+        await Util.sleep(150 + attempt * 150);
       }
     }
     if (!stream) { Camera.lastError = lastErr; throw new Error(Camera.describeError(lastErr)); }
@@ -1169,7 +1172,9 @@ const Camera = {
       catch (err) {
         lastErr = err;
         if (!/NotReadable|Abort|NotAllowed/i.test(err.name + err.message)) break;
-        await Util.sleep(320 + attempt * 320);
+        // Same short release beat as open(): 150ms keeps iOS hardware release safe;
+        // below ~120ms risks NotReadableError, above only adds shutter-to-shutter gap.
+        await Util.sleep(150 + attempt * 150);
       }
     }
     if (!stream) { Camera.lastError = lastErr; throw lastErr; }
@@ -1187,6 +1192,28 @@ const Camera = {
     v.playsInline = true; v.muted = true; v.autoplay = true;
     try { v.setAttribute("playsinline", ""); } catch (e) {}
     return v;
+  },
+
+  // ImageCapture.takePhoto() captures from the track directly and does not need a
+  // playing <video> element, so the takePhoto path skips attachAndWarm/waitForFrame
+  // entirely. The <video> warmup below stays as the canvas fallback only
+  // (ImageCapture absent or takePhoto failed).
+  hasTakePhoto: function () {
+    try {
+      return !!(window.ImageCapture && window.ImageCapture.prototype &&
+                typeof window.ImageCapture.prototype.takePhoto === "function");
+    } catch (e) { return false; }
+  },
+
+  // Still capture without touching any <video>. Throws on API absence/empty frame
+  // so callers can fall through to the warmed canvas grab. Sets Camera.method so
+  // pills and capture.json keep reporting the real mechanism.
+  takePhotoGrab: async function (track) {
+    const ic = new ImageCapture(track);
+    const blob = await ic.takePhoto();
+    if (!blob || blob.size <= 1024) throw new Error("takePhoto returned empty frame");
+    Camera.method = "takePhoto";
+    return { blob: blob, via: "ImageCapture.takePhoto" };
   },
 
   attachAndWarm: async function (video, stream, timeoutMs) {
@@ -2022,6 +2049,33 @@ const Capture = {
     try {
       const opened = await Promise.all([Camera.openRaw(wideDev.id), Camera.openRaw(ultraDev.id)]);
       rawW = opened[0]; rawU = opened[1];
+      // Fast path: takePhoto needs only the live tracks, no <video> play/waitForFrame.
+      // Track-only isLive is meaningful here (readyState/muted); video is checked only
+      // on the warmed fallback below. Falls through to warmup when takePhoto is
+      // absent/failed so canvas capture keeps working.
+      if (Camera.hasTakePhoto()) {
+        let fGrabbed = null, fAtMsW = null, fAtW = null, fAtMsU = null, fAtU = null;
+        try {
+          if (!Camera.isLive(rawW.track, null)) throw new Error("wide stream not live");
+          if (!Camera.isLive(rawU.track, null)) throw new Error("ultrawide stream not live");
+          const fPW = Camera.takePhotoGrab(rawW.track).then(function (g) { fAtMsW = Date.now(); fAtW = Util.nowIso(); return g; });
+          const fPU = Camera.takePhotoGrab(rawU.track).then(function (g) { fAtMsU = Date.now(); fAtU = Util.nowIso(); return g; });
+          fGrabbed = await Promise.all([fPW, fPU]);
+        } catch (fastGrabErr) { fGrabbed = null; }
+        if (fGrabbed) {
+          if (await Util.isBlankFrame(fGrabbed[0].blob)) throw new Error("wide frame came back blank while both lenses were open");
+          if (await Util.isBlankFrame(fGrabbed[1].blob)) throw new Error("ultrawide frame came back blank while both lenses were open");
+          if (!Camera.isLive(rawW.track, null) || !Camera.isLive(rawU.track, null)) throw new Error("a stream died during parallel capture");
+          const fDW = await Util.imageSize(fGrabbed[0].blob), fDU = await Util.imageSize(fGrabbed[1].blob);
+          const fInter = (fAtMsW != null && fAtMsU != null) ? Math.abs(fAtMsU - fAtMsW) : null;
+          return {
+            mode: "parallel",
+            wide: { blob: fGrabbed[0].blob, via: fGrabbed[0].via, dims: fDW, track: rawW.track, settings: rawW.settings, caps: rawW.caps, lock: rawW.lock, at: fAtW, atMs: fAtMsW },
+            ultra: { blob: fGrabbed[1].blob, via: fGrabbed[1].via, dims: fDU, track: rawU.track, settings: rawU.settings, caps: rawU.caps, lock: rawU.lock, at: fAtU, atMs: fAtMsU },
+            interFrameMs: fInter
+          };
+        }
+      }
       const warmed = await Promise.all([
         Camera.attachAndWarm(vW, rawW.stream, 6000),
         Camera.attachAndWarm(vU, rawU.stream, 6000)
@@ -2064,6 +2118,33 @@ const Capture = {
     let rawU = null;
     try {
       rawU = await Camera.openRaw(ultraDev.id);
+      // Fast path: both takePhotos need only live tracks, no <video> warmup for the
+      // new ultrawide stream. Track-only isLive is meaningful here; the preview video
+      // is already warm so it costs nothing to keep checking it with video.
+      if (Camera.hasTakePhoto()) {
+        let fGrabbed = null, fAtMsW = null, fAtW = null, fAtMsU = null, fAtU = null;
+        try {
+          if (!Camera.view || !Camera.isLive(Camera.view.track, video)) throw new Error("wide preview died when ultrawide opened");
+          if (!Camera.isLive(rawU.track, null)) throw new Error("ultrawide produced no live frame beside the preview");
+          const fPW = Camera.takePhotoGrab(Camera.view.track).then(function (g) { fAtMsW = Date.now(); fAtW = Util.nowIso(); return g; });
+          const fPU = Camera.takePhotoGrab(rawU.track).then(function (g) { fAtMsU = Date.now(); fAtU = Util.nowIso(); return g; });
+          fGrabbed = await Promise.all([fPW, fPU]);
+        } catch (fastGrabErr) { fGrabbed = null; }
+        if (fGrabbed) {
+          if (await Util.isBlankFrame(fGrabbed[0].blob)) throw new Error("wide frame came back blank");
+          if (await Util.isBlankFrame(fGrabbed[1].blob)) throw new Error("ultrawide frame came back blank");
+          if (!Camera.isLive(rawU.track, null) || !Camera.isLive(Camera.view.track, video)) throw new Error("a stream died during parallel capture");
+          const fDW = await Util.imageSize(fGrabbed[0].blob), fDU = await Util.imageSize(fGrabbed[1].blob);
+          const viewCaps = {};
+          try { viewCaps.settings = Camera.view.settings || {}; } catch (e) {}
+          return {
+            mode: "parallel",
+            wide: { blob: fGrabbed[0].blob, via: fGrabbed[0].via, dims: fDW, track: Camera.view.track, settings: Camera.view.settings || {}, caps: viewCaps, lock: null, at: fAtW, atMs: fAtMsW },
+            ultra: { blob: fGrabbed[1].blob, via: fGrabbed[1].via, dims: fDU, track: rawU.track, settings: rawU.settings, caps: rawU.caps, lock: rawU.lock, at: fAtU, atMs: fAtMsU },
+            interFrameMs: (fAtMsW != null && fAtMsU != null) ? Math.abs(fAtMsU - fAtMsW) : null
+          };
+        }
+      }
       await Camera.attachAndWarm(vU, rawU.stream, 6000);
       if (!Camera.isLive(rawU.track, vU)) throw new Error("ultrawide produced no live frame beside the preview");
       if (!Camera.view || !Camera.isLive(Camera.view.track, video)) throw new Error("wide preview died when ultrawide opened");
@@ -2096,10 +2177,34 @@ const Capture = {
   _captureSwitchFromBackup: async function (wideDev, ultraDev, duoId, backup, whyParallelFailed) {
     Camera.stopView();
     Camera.stopDuo();
-    await Util.sleep(280);   // iOS needs a beat after stopping one lens before the next opens
+    // iOS needs a short beat after stopping one lens before the next opens so the
+    // hardware releases; 150ms retains that beat while cutting idle. Below ~120ms
+    // risks NotReadableError on lens switch; larger only adds handheld gap.
+    await Util.sleep(150);
     const rawU = await Camera.openRaw(ultraDev.id).catch(function (err) { throw new Error(Camera.describeError(err)); });
     const vU = Camera.makeOffscreenVideo();
     try {
+      // Fast path: takePhoto needs only the live track, no <video> warmup.
+      // Track-only isLive is meaningful here; video is checked only on the warmed
+      // canvas fallback below (ImageCapture absent or takePhoto failed).
+      if (Camera.hasTakePhoto() && Camera.isLive(rawU.track, null)) {
+        let fastU = null;
+        try { fastU = await Camera.takePhotoGrab(rawU.track); } catch (fastErr) { fastU = null; }
+        if (fastU) {
+          const atMsU = Date.now(), atU = Util.nowIso();
+          if (await Util.isBlankFrame(fastU.blob)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide frame came back blank — hold steady and try again"); }
+          if (!Camera.isLive(rawU.track, null)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide stream died during capture"); }
+          const dU = await Util.imageSize(fastU.blob);
+          try { vU.srcObject = null; } catch (e) {}
+          return {
+            mode: "single-stream-switch",
+            wide: backup,
+            ultra: { blob: fastU.blob, via: fastU.via, dims: dU, track: rawU.track, settings: rawU.settings, caps: rawU.caps, lock: rawU.lock, at: atU, atMs: atMsU },
+            interFrameMs: Math.abs(atMsU - backup.atMs),
+            parallelError: whyParallelFailed || null
+          };
+        }
+      }
       await Camera.attachAndWarm(vU, rawU.stream, 6000);
       if (!Camera.isLive(rawU.track, vU)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide lens produced no live frame"); }
       const gU = await Camera.grabFrom(vU, rawU.track);
@@ -2124,26 +2229,47 @@ const Capture = {
   _captureSwitch: async function (wideDev, ultraDev, duoId) {
     Camera.stop();
     Camera.stopDuo();
-    await Util.sleep(250);
+    // iOS needs a short beat after stopping one lens before the next opens so the
+    // hardware releases; 150ms retains that beat while cutting idle. Below ~120ms
+    // risks NotReadableError on lens switch; larger only adds handheld gap.
+    await Util.sleep(150);
     // Wide first: it is the primary measurement camera.
     const rawW = await Camera.openRaw(wideDev.id).catch(function (err) { throw new Error(Camera.describeError(err)); });
     const vW = Camera.makeOffscreenVideo();
     try {
-      await Camera.attachAndWarm(vW, rawW.stream, 6000);
-      if (!Camera.isLive(rawW.track, vW)) throw new Error("wide lens produced no live frame");
-      const gW = await Camera.grabFrom(vW, rawW.track);
+      // Fast path per lens: takePhoto needs only the live track, no <video> warmup.
+      // Track-only isLive is meaningful here; video is checked only on the warmed
+      // canvas fallback (ImageCapture absent or takePhoto failed).
+      let gW = null;
+      if (Camera.hasTakePhoto() && Camera.isLive(rawW.track, null)) {
+        try { gW = await Camera.takePhotoGrab(rawW.track); } catch (fastErr) { gW = null; }
+        if (gW && !Camera.isLive(rawW.track, null)) throw new Error("wide lens produced no live frame");
+      }
+      if (!gW) {
+        await Camera.attachAndWarm(vW, rawW.stream, 6000);
+        if (!Camera.isLive(rawW.track, vW)) throw new Error("wide lens produced no live frame");
+        gW = await Camera.grabFrom(vW, rawW.track);
+      }
       const atMsW = Date.now(), atW = Util.nowIso();
       if (await Util.isBlankFrame(gW.blob)) throw new Error("wide frame came back blank — hold steady and try again");
       const dW = await Util.imageSize(gW.blob);
       const wideCap = { blob: gW.blob, via: gW.via, dims: dW, track: rawW.track, settings: rawW.settings, caps: rawW.caps, lock: rawW.lock, at: atW, atMs: atMsW };
       try { vW.srcObject = null; } catch (e) {}
       Camera.stopRaw(rawW.stream);
-      await Util.sleep(280);   // iOS needs a beat after stopping one lens before the next opens
+      // Same short release beat before opening the second lens (see above).
+      await Util.sleep(150);
       const rawU = await Camera.openRaw(ultraDev.id).catch(function (err) { throw new Error(Camera.describeError(err)); });
       const vU = Camera.makeOffscreenVideo();
-      await Camera.attachAndWarm(vU, rawU.stream, 6000);
-      if (!Camera.isLive(rawU.track, vU)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide lens produced no live frame"); }
-      const gU = await Camera.grabFrom(vU, rawU.track);
+      let gU = null;
+      if (Camera.hasTakePhoto() && Camera.isLive(rawU.track, null)) {
+        try { gU = await Camera.takePhotoGrab(rawU.track); } catch (fastErr) { gU = null; }
+        if (gU && !Camera.isLive(rawU.track, null)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide lens produced no live frame"); }
+      }
+      if (!gU) {
+        await Camera.attachAndWarm(vU, rawU.stream, 6000);
+        if (!Camera.isLive(rawU.track, vU)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide lens produced no live frame"); }
+        gU = await Camera.grabFrom(vU, rawU.track);
+      }
       const atMsU = Date.now(), atU = Util.nowIso();
       if (await Util.isBlankFrame(gU.blob)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide frame came back blank — hold steady and try again"); }
       const dU = await Util.imageSize(gU.blob);
