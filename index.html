@@ -118,21 +118,28 @@
 <main>
   <div class="prog" id="prog"><i id="p1"></i><i id="p2"></i><i id="p3"></i></div>
 
-  <!-- ============ one-tap dual capture ============ -->
+  <!-- ============ dual capture: the only capture path ============ -->
   <section class="card" id="card-duo">
     <div class="stephead">
       <div class="num" style="background:var(--acc);color:#04121a">◆</div>
-      <div class="t"><h2>One-tap dual capture</h2><small>One shutter → 1× wide + 0.5× ultrawide, same object</small></div>
+      <div class="t"><h2>Rear dual capture</h2><small>1× main + 0.5× ultrawide · one shutter · rear lenses only</small></div>
     </div>
-    <p class="inline-note">One tap captures <b>both</b> rear lenses. The phone decides how: true parallel if Safari holds both streams, otherwise a single-stream lens switch back-to-back. The actual mode and inter-frame gap are recorded — nothing is claimed that was not measured.</p>
-    <button class="btn" id="go-duo">Capture both lenses at once</button>
+    <div class="stage" id="stage-duo">
+      <video id="video-duo" playsinline webkit-playsinline muted autoplay></video>
+      <div class="guide"><span>fill ~60–80% of this box · 20–60 cm away</span></div>
+      <div class="lensbadge" id="badge-duo"><span class="dot"></span><span class="txt">camera off</span></div>
+      <div class="stagefoot" id="foot-duo"></div>
+    </div>
+    <div class="shutterwrap hidden" id="shut-wrap-duo">
+      <button class="shutter" id="shut-duo" aria-label="Capture wide and ultrawide at once"></button>
+    </div>
+    <button class="btn" id="go-duo">Start rear camera</button>
     <div class="chips hidden" id="chips-duo"></div>
     <div class="verdict hidden" id="verdict-duo"></div>
-    <p class="inline-note">Manual single-lens steps below remain as fallback (e.g. Camera-app EXIF path, old iOS with one lens).</p>
   </section>
 
-  <!-- ============ step 1: wide ============ -->
-  <section class="card" id="card-wide">
+  <!-- ============ legacy single-lens steps: hidden, kept only so old JS hooks never null-crash ============ -->
+  <section class="card hidden" id="card-wide">
     <div class="stephead">
       <div class="num w">1</div>
       <div class="t"><h2>Main camera · 1× wide</h2><small>Primary measurement camera — shoot this one first</small></div>
@@ -254,12 +261,15 @@
 
    Structure (one direction of flow, one owner per piece of state):
 
-     DOM events ──► Capture (controller: the user's flow, incl. one-tap captureBoth)
-                        ├──► Camera   (device + stream state, owns live + duo tracks)
+     DOM events ──► Capture (previewDuo viewport + one-shutter captureBoth)
+                        ├──► Camera   (rear-only device/stream state, owns viewport + duo tracks)
                         └──► Session  (the shoot: shots, duo claim, label, warnings, packaged ZIP)
                               ▲
-     files ──► Exif / Optics / Lenses (pure) ──┘
+     files ──► Exif / Optics / Lenses (pure, rear-only verdicts) ──┘
      Session ──► Manifest.build() ──► Zip.build() ──► Blob ──► download / share
+
+   UI is single-path: one live rear viewport (video-duo) + one shutter
+   (shut-duo). Legacy single-lens cards stay hidden for hook compat only.
 
      * Pure core (Exif, Optics, Lenses, Zip, Manifest) never touches the DOM or
        mutable state: same input, same output, testable from a console.
@@ -271,11 +281,12 @@
 
    Verified iOS behaviour this rests on: getUserMedia needs a secure context;
    iOS 16.3+ publishes every rear lens through enumerateDevices() (labels stay
-   empty until camera permission is granted); two simultaneous camera streams
-   historically break Safari (WebKit #179363) so manual single-lens steps open
-   strictly one at a time, while one-tap dual capture probes both streams per
-   phone and falls back to a single-stream lens switch, recording which mode ran;
-   <input type=file accept="image/jpeg" capture> gets JPEG out of the iOS camera;
+   empty until camera permission is granted); facingMode exact environment is
+   used throughout so the front camera can never be granted, opened, or stored
+   (any user-facing track is stopped and refused); two simultaneous camera
+   streams historically break Safari (WebKit #179363) so the shutter probes
+   both rear streams per phone and falls back to a single-stream lens switch,
+   recording which mode ran; unknown labels never default to wide.
    Safari does not https-upgrade URLs typed in the address bar.
    ===================================================================================== */
 
@@ -295,8 +306,8 @@ const ROLE_ORDER = ["wide", "ultra"];   // capture order, manifest order, ZIP en
 const RULES = [
   { lead: "Distance:", page: "keep the object <b>20–60 cm</b> from the phone. Beyond ~1 m a 1.5 cm baseline is too weak for centimetres.",
     zip: "object 20-60 cm from the phone (past ~1 m a 1.5 cm baseline is too weak)" },
-  { lead: "Same spot:", page: "the two photos must be from the same position. Move nothing but the lens — press both shutters within a second or two.",
-    zip: "both photos from the same position, a second or two apart" },
+  { lead: "Same spot:", page: "both photos come from one shutter press — hold the phone still until the pair lands.",
+    zip: "both photos from one shutter press, same position" },
   { lead: "Fill the frame:", page: "the object should span most of the guide box, and be fully inside it in <b>both</b> photos.",
     zip: "object fills most of the frame and is fully inside it in both photos" },
   { lead: "Same phone rotation:", page: "don't rotate the phone between the two shots; the baseline direction would rotate with it.",
@@ -687,15 +698,34 @@ const Optics = {
 const Lenses = {
   classifyDeviceLabel: function (label) {
     const l = String(label || "").toLowerCase();
-    const isFront = /front|face|selfie/.test(l);
+    const isFront = /front|face|selfie|user/.test(l);
     const isUltra = /ultra[\s-]?wide|ultrawide|0\.5/.test(l);
     const isTele = /tele|telephoto|2x|3x|5x/.test(l);
     const isVirtual = /dual|triple|virtual|quad/.test(l);
+    // Rear only: a front label is never a measurement lens.
     if (isFront) return { kind: "front", virtual: false };
     if (isUltra) return { kind: "ultra", virtual: isVirtual };
     if (isTele) return { kind: "tele", virtual: isVirtual };
     if (isVirtual) return { kind: "virtual", virtual: true };
-    return { kind: "wide", virtual: false };
+    // Never default an unknown label (e.g. desktop "Integrated Webcam") to
+    // wide: only explicit rear markers count. Unknown stays unknown and is
+    // refused unless a rear-facing track verifies it at open time.
+    if (!l || /\(unnamed/.test(l)) return { kind: "unknown", virtual: false };
+    if (/back|rear|environment|main|\bwide\b|0\.5x|1x/.test(l)) return { kind: "wide", virtual: false };
+    return { kind: "unknown", virtual: false };
+  },
+
+  // A track whose facingMode is "user" is the front camera whatever its label
+  // claims. Call after every open; throws so the stream is never kept.
+  assertRearTrack: function (track, settings) {
+    const s = settings || (track && track.getSettings ? track.getSettings() : {}) || {};
+    const facing = s.facingMode || null;
+    const label = (track && track.label) || "";
+    const kind = Lenses.classifyDeviceLabel(label).kind;
+    if (facing === "user" || kind === "front") {
+      return { ok: false, facing: facing, label: label };
+    }
+    return { ok: true, facing: facing, label: label };
   },
 
   classifyExif: function (exif) {
@@ -952,16 +982,17 @@ const Session = {
 };
 
 /* ================================== Camera =================================
-   Device list, lens picks and the live stream. Single-lens steps open strictly
-   one at a time: iOS Safari breaks with two camera streams (WebKit #179363).
-   One-tap dual capture probes that limit per phone: it tries true parallel
-   first and falls back to a single-stream lens switch, recording which mode
-   actually ran. */
+   Rear-only device list, lens picks, viewport preview and duo streams.
+   iOS Safari historically breaks with two camera streams (WebKit #179363):
+   the shutter probes that limit per phone, trying true parallel first and
+   falling back to a single-stream lens switch, recording which mode ran.
+   Front tracks are stopped and refused at every entry point. */
 const Camera = {
   devices: [], back: [], hasLabels: false,
   picks: { wide: null, ultra: null },
   stream: null, role: null, track: null, lock: null, method: null,
   duoStreams: [],
+  view: null,   // { stream, track, dev, settings } — live rear-wide viewport (video-duo)
 
   supported: () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
 
@@ -985,13 +1016,20 @@ const Camera = {
     return Camera.back;
   },
 
-  // First run: ask for permission with a throwaway stream, release it, re-enumerate
-  // so the labels appear and the lenses can be told apart.
+  // First run: ask for permission with a throwaway REAR stream, release it,
+  // re-enumerate so the labels appear and the lenses can be told apart.
+  // facingMode exact (not ideal): never silently fall back to the front camera.
   grant: async function () {
     if (Camera.hasLabels) return true;
     try {
-      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } }, audio: false });
+      const tr = st.getVideoTracks()[0];
+      const chk = Lenses.assertRearTrack(tr, tr && tr.getSettings ? tr.getSettings() : {});
       st.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
+      if (!chk.ok) {
+        Camera.lastError = { name: "FrontCamera", message: "rear camera required, front camera refused (" + (chk.label || chk.facing || "unknown") + ")" };
+        return false;
+      }
       await Util.sleep(350);
       await Camera.refresh();
       return Camera.hasLabels;
@@ -999,6 +1037,17 @@ const Camera = {
       Camera.lastError = err;
       return false;
     }
+  },
+
+  // Refuse a front stream immediately: stop it, never store it, throw.
+  refuseIfFront: function (stream, where) {
+    const track = stream ? stream.getVideoTracks()[0] : null;
+    const chk = Lenses.assertRearTrack(track, track && track.getSettings ? track.getSettings() : {});
+    if (!chk.ok) {
+      try { stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} }); } catch (e) {}
+      throw new Error("Front camera refused" + (where ? " (" + where + ")" : "") + ": this app measures with the rear main + ultrawide lenses only.");
+    }
+    return track;
   },
 
   pick: function (role) {
@@ -1044,6 +1093,7 @@ const Camera = {
       }
     }
     if (!stream) { Camera.lastError = lastErr; throw new Error(Camera.describeError(lastErr)); }
+    Camera.refuseIfFront(stream, "open");
 
     Camera.stream = stream;
     Camera.role = role;
@@ -1064,8 +1114,18 @@ const Camera = {
     return { stream: stream, track: Camera.track, settings: settings, caps: caps };
   },
 
+  stopView: function () {
+    if (Camera.view && Camera.view.stream) {
+      try { Camera.view.stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} }); } catch (e) {}
+      Camera.duoStreams = (Camera.duoStreams || []).filter((s) => s !== Camera.view.stream);
+    }
+    Camera.view = null;
+    try { const v = $("video-duo"); if (v && v.srcObject) v.srcObject = null; } catch (e) {}
+  },
+
   stop: function () {
     Camera.stopDuo();
+    Camera.stopView();
     if (Camera.stream) Camera.stream.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
     try {
       ROLE_ORDER.forEach(function (role) {
@@ -1110,6 +1170,7 @@ const Camera = {
       }
     }
     if (!stream) { Camera.lastError = lastErr; throw lastErr; }
+    Camera.refuseIfFront(stream, "openRaw");
     Camera.duoStreams.push(stream);
     const track = stream.getVideoTracks()[0];
     const settings = (track && track.getSettings ? track.getSettings() : {}) || {};
@@ -1188,14 +1249,14 @@ const Camera = {
         || (Camera.back || []).find((c) => c.id !== (wide && wide.id) && c.kind !== "front");
       ultra = alt || null;
     }
-    if (!wide) throw new Error("No back camera found.");
+    if (!wide) throw new Error("No rear camera found. Open this page in Safari on an iPhone (iOS 16.3+) over HTTPS.");
     if (!ultra) {
       throw new Error(Camera.back.length <= 1
-        ? "This phone/Safari exposes only one rear lens to web pages (iOS 16.3+ is needed for ultrawide access). Use the manual Camera-app steps below and tap 0.5× by hand."
-        : "No ultrawide lens was found among: " + Camera.back.map((c) => c.label).join(", ") + ". Use the manual steps below.");
+        ? "Only one rear lens is exposed to web pages here (iOS 16.3+ with an ultrawide iPhone is needed)."
+        : "No ultrawide lens was found among: " + Camera.back.map((c) => c.label).join(", ") + ".");
     }
     if (wide.id === ultra.id) {
-      throw new Error("Both steps resolved to the same lens (" + wide.label + ") — dual capture refused. Tap 'Switch lens' in the manual steps to separate them, then try again.");
+      throw new Error("Both picks resolved to the same lens (" + wide.label + ") — dual capture refused. Restart the rear camera and try again.");
     }
     Camera.picks.wide = wide;
     Camera.picks.ultra = ultra;
@@ -1486,6 +1547,7 @@ const View = {
     View.pills();
     View.steps();
     ROLE_ORDER.forEach(View.shot);
+    View.viewBadge();
     View.duo();
     View.review();
   },
@@ -1494,7 +1556,32 @@ const View = {
     const btn = $("go-duo");
     if (!btn) return;
     btn.disabled = !!label;
-    btn.innerHTML = label ? '<span class="spin"></span>' + Util.esc(label) : "Capture both lenses at once";
+    btn.innerHTML = label ? '<span class="spin"></span>' + Util.esc(label)
+      : (Camera.view ? "Restart rear camera" : "Start rear camera");
+  },
+
+  // Viewport badge: always names the rear lens actually previewing.
+  viewBadge: function () {
+    const badge = $("badge-duo"), foot = $("foot-duo");
+    if (!badge) return;
+    if (Camera.view && Camera.view.track) {
+      const label = Camera.view.track.label || (Camera.view.dev && Camera.view.dev.label) || "rear camera";
+      badge.className = "lensbadge live";
+      badge.innerHTML = '<span class="dot"></span><span class="txt">1× WIDE — ' + Util.esc(label) + "</span>";
+      try {
+        const s = Camera.view.track.getSettings ? Camera.view.track.getSettings() : {};
+        if (foot) foot.textContent = (s && s.width) ? s.width + "×" + s.height : "";
+      } catch (e) {}
+    } else {
+      badge.className = "lensbadge";
+      badge.innerHTML = '<span class="dot"></span><span class="txt">camera off</span>';
+      if (foot) foot.textContent = "";
+    }
+    const wrap = $("shut-wrap-duo"), shut = $("shut-duo"), go = $("go-duo");
+    const live = !!(Camera.view && Camera.view.track);
+    if (wrap) Util.show(wrap, live);
+    if (shut) shut.disabled = !live;
+    if (go && !go.disabled) go.textContent = live ? "Restart rear camera" : "Start rear camera";
   },
 
   duoNote: function (level, title, detail) {
@@ -1556,17 +1643,19 @@ const View = {
       else pills.push({ cls: ultra ? "ok" : "warn", text: backCount + " back lens" + (backCount === 1 ? "" : "es") + " visible" + (ultra ? " ✓" : " (no ultrawide!)") });
       pills.push({ cls: "ok", text: Camera.method === "takePhoto" ? "ImageCapture.takePhoto ✓" : (Camera.method === "canvas" ? "video-frame grab" : "ImageCapture " + (window.ImageCapture ? "detected" : "absent")) });
     } else {
-      pills.push({ cls: "warn", text: "no getUserMedia — use Camera-app mode" });
+      pills.push({ cls: "warn", text: "no getUserMedia — needs Safari on iPhone" });
     }
     pills.push({ cls: "", text: "session " + String(Session.id || "").slice(0, 8) });
     $("pills").innerHTML = pills.map((p) => '<span class="pill ' + p.cls + '">' + Util.esc(p.text) + "</span>").join("");
   },
 
   steps: function () {
-    $("p1").className = Session.shots.wide ? "on" : "";
-    $("p2").className = Session.shots.ultra ? "on" : "";
+    $("p1").className = Session.complete() ? "on" : "";
+    $("p2").className = Session.complete() ? "on" : "";
     $("p3").className = Session.packaged ? "on" : "";
-    Util.show($("card-ultra"), !!(Session.shots.wide || Session.shots.ultra));
+    // Single-path UI: legacy single-lens cards stay hidden; results live in card-zip.
+    Util.show($("card-wide"), false);
+    Util.show($("card-ultra"), false);
     Util.show($("card-zip"), Session.complete());
   },
 
@@ -1755,41 +1844,107 @@ const Capture = {
     });
   },
 
-  /* One tap → two shots. The phone decides how: true parallel when Safari can
-     hold both rear streams, otherwise a single-stream lens switch back-to-back.
-     The mode that actually ran (plus the real inter-frame gap) is recorded on
-     every shot and in capture.json — simultaneity is never claimed, only
-     measured. Same-lens outcomes are refused outright. */
-  captureBoth: async function () {
+  /* Viewport: live rear-wide preview. One shutter (shut-duo) captures both. */
+  previewDuo: async function () {
     if (!Util.secure()) {
       View.duoNote("err", "Live camera needs HTTPS",
-        "This page is served insecurely, so Safari hides the camera API. Use the manual Camera-app steps below, or open the page from its https:// address.");
+        "Open this page from its https:// address. Safari hides the camera API on insecure origins.");
       return;
     }
     if (!Camera.supported()) {
       View.duoNote("err", "No camera API in this browser",
-        "Use the manual Camera-app steps below — the photo path still works.");
+        "Open this page in Safari on an iPhone with an ultrawide lens (iOS 16.3+).");
       return;
     }
-    View.duoBusy("Locating lenses…");
+    View.duoBusy("Starting rear camera…");
     Camera.stop();
+    View.render();
     try {
       const picks = await Camera.ensureDuoPicks();
+      const rawW = await Camera.openRaw(picks.wide.id).catch(function (err) { throw new Error(Camera.describeError(err)); });
+      const video = $("video-duo");
+      await Camera.attachAndWarm(video, rawW.stream, 6000);
+      if (!Camera.isLive(rawW.track, video)) { Camera.stopRaw(rawW.stream); throw new Error("Rear wide lens produced no live frame."); }
+      Camera.view = { stream: rawW.stream, track: rawW.track, dev: picks.wide, settings: rawW.settings };
       View.render();
+      View.duoNote("ok", "Rear preview live: 1× wide (" + (rawW.track.label || picks.wide.label) + ")",
+        "Frame the object, then tap the shutter — one shutter captures wide + ultrawide.");
+      View.render();
+    } catch (err) {
+      Camera.stop();
+      View.duoNote("err", "Rear camera did not start", (err && err.message) || String(err));
+      View.render();
+    } finally {
+      View.duoBusy(null);
+      View.render();
+    }
+  },
+
+  /* One shutter → two shots from the viewport. The wide frame comes straight
+     out of the live preview (no re-open gap); the phone then decides the rest:
+     true parallel when Safari holds both rear streams, otherwise a
+     single-stream lens switch back-to-back. Mode + real gap are recorded;
+     simultaneity is measured, never claimed. Front streams are refused;
+     same-lens outcomes are refused outright. */
+  captureBoth: async function () {
+    if (!Util.secure()) {
+      View.duoNote("err", "Live camera needs HTTPS",
+        "Open this page from its https:// address.");
+      return;
+    }
+    if (!Camera.supported()) {
+      View.duoNote("err", "No camera API in this browser",
+        "Open this page in Safari on an iPhone with an ultrawide lens (iOS 16.3+).");
+      return;
+    }
+    const video = $("video-duo");
+    const viewLive = Camera.view && Camera.view.track && video && Camera.isLive(Camera.view.track, video);
+    View.duoBusy(viewLive ? "Capturing both lenses…" : "Locating rear lenses…");
+    try {
+      const picks = await Camera.ensureDuoPicks();
       const duoId = Util.newId();
-      View.duoBusy("Opening both lenses…");
 
       let result = null, parallelError = null;
-      try {
-        result = await Capture._captureParallel(picks.wide, picks.ultra, duoId);
-      } catch (err) {
-        parallelError = err;
-      }
-      if (!result) {
-        View.duoBusy("Parallel unavailable — switching lens…");
-        result = await Capture._captureSwitch(picks.wide, picks.ultra, duoId);
-        if (parallelError) {
-          result.parallelError = (parallelError && parallelError.message) || String(parallelError);
+      if (viewLive) {
+        // Viewport flow: secure the wide frame from the preview first, so it
+        // survives even if iOS kills the stream when the second lens opens.
+        View.duoBusy("Capturing both lenses…");
+        let backup = null;
+        try {
+          const g0 = await Camera.grabFrom(video, Camera.view.track);
+          if (await Util.isBlankFrame(g0.blob)) throw new Error("preview frame came back blank — hold steady and tap again");
+          const d0 = await Util.imageSize(g0.blob);
+          backup = { blob: g0.blob, via: g0.via, dims: d0, track: Camera.view.track,
+                     settings: Camera.view.settings || {}, caps: {}, lock: null,
+                     at: Util.nowIso(), atMs: Date.now() };
+        } catch (err) {
+          throw new Error("Wide frame failed: " + (err.message || err));
+        }
+        try {
+          result = await Capture._captureParallelFromView(picks.wide, picks.ultra, duoId, backup);
+        } catch (err) {
+          parallelError = err;
+        }
+        if (!result) {
+          View.duoBusy("Switching to ultrawide…");
+          result = await Capture._captureSwitchFromBackup(picks.wide, picks.ultra, duoId, backup,
+            (parallelError && parallelError.message) || String(parallelError || ""));
+        }
+      } else {
+        // No preview (user tapped shutter directly): headless open-grab-switch.
+        Camera.stop();
+        View.duoBusy("Opening both lenses…");
+        try {
+          result = await Capture._captureParallel(picks.wide, picks.ultra, duoId);
+        } catch (err) {
+          parallelError = err;
+        }
+        if (!result) {
+          View.duoBusy("Parallel unavailable — switching lens…");
+          result = await Capture._captureSwitch(picks.wide, picks.ultra, duoId);
+          if (parallelError) {
+            result.parallelError = (parallelError && parallelError.message) || String(parallelError);
+          }
         }
       }
 
@@ -1797,7 +1952,7 @@ const Capture = {
       const wLabel = (result.wide.track && result.wide.track.label) || picks.wide.label || "";
       const uLabel = (result.ultra.track && result.ultra.track.label) || picks.ultra.label || "";
       if (picks.wide.id === picks.ultra.id || (wLabel && uLabel && wLabel === uLabel)) {
-        throw new Error("Both frames came from the same lens (" + (wLabel || "unknown") + ") — pair refused. Separate the lenses, then try again.");
+        throw new Error("Both frames came from the same lens (" + (wLabel || "unknown") + ") — pair refused. Restart the rear camera and try again.");
       }
 
       const inter = result.interFrameMs;
@@ -1820,7 +1975,7 @@ const Capture = {
       wideMeta.verdict = wv;
       ultraMeta.verdict = uv;
       if (wv.level === "err" || uv.level === "err") {
-        throw new Error("Lens check failed (" + wv.title + " / " + uv.title + "). Use 'Switch lens' in the manual steps or the Camera-app path.");
+        throw new Error("Lens check failed (" + wv.title + " / " + uv.title + "). Rear main + ultrawide required; front/telephoto frames are refused.");
       }
 
       Session.addDuoShots(result.wide.blob, wideMeta, result.ultra.blob, ultraMeta, duoInfo);
@@ -1893,6 +2048,73 @@ const Capture = {
     } finally {
       try { vW.srcObject = null; } catch (e) {}
       try { vU.srcObject = null; } catch (e) {}
+    }
+  },
+
+  /* Parallel with the viewport held open: the wide preview stream stays up
+     while the ultrawide opens beside it. Both fresh grabs must come from
+     simultaneously-live streams to claim parallel. */
+  _captureParallelFromView: async function (wideDev, ultraDev, duoId, backup) {
+    const video = $("video-duo");
+    const viewStream = Camera.view ? Camera.view.stream : null;
+    const vU = Camera.makeOffscreenVideo();
+    let rawU = null;
+    try {
+      rawU = await Camera.openRaw(ultraDev.id);
+      await Camera.attachAndWarm(vU, rawU.stream, 6000);
+      if (!Camera.isLive(rawU.track, vU)) throw new Error("ultrawide produced no live frame beside the preview");
+      if (!Camera.view || !Camera.isLive(Camera.view.track, video)) throw new Error("wide preview died when ultrawide opened");
+      let atMsW = null, atW = null, atMsU = null, atU = null;
+      const pW = Camera.grabFrom(video, Camera.view.track).then(function (g) { atMsW = Date.now(); atW = Util.nowIso(); return g; });
+      const pU = Camera.grabFrom(vU, rawU.track).then(function (g) { atMsU = Date.now(); atU = Util.nowIso(); return g; });
+      const grabbed = await Promise.all([pW, pU]);
+      const gW = grabbed[0], gU = grabbed[1];
+      if (await Util.isBlankFrame(gW.blob)) throw new Error("wide frame came back blank");
+      if (await Util.isBlankFrame(gU.blob)) throw new Error("ultrawide frame came back blank");
+      if (!Camera.isLive(rawU.track, vU) || !Camera.isLive(Camera.view.track, video)) throw new Error("a stream died during parallel capture");
+      const dW = await Util.imageSize(gW.blob), dU = await Util.imageSize(gU.blob);
+      const viewCaps = {};
+      try { viewCaps.settings = Camera.view.settings || {}; } catch (e) {}
+      return {
+        mode: "parallel",
+        wide: { blob: gW.blob, via: gW.via, dims: dW, track: Camera.view.track, settings: Camera.view.settings || {}, caps: viewCaps, lock: null, at: atW, atMs: atMsW },
+        ultra: { blob: gU.blob, via: gU.via, dims: dU, track: rawU.track, settings: rawU.settings, caps: rawU.caps, lock: rawU.lock, at: atU, atMs: atMsU },
+        interFrameMs: (atMsW != null && atMsU != null) ? Math.abs(atMsU - atMsW) : null
+      };
+    } finally {
+      try { vU.srcObject = null; } catch (e) {}
+      if (rawU) Camera.stopRaw(rawU.stream);
+      void viewStream; void backup;
+    }
+  },
+
+  /* Switch from a secured preview wide frame: the wide shot is already in
+     hand, so only the ultrawide still needs opening. Minimal honest gap. */
+  _captureSwitchFromBackup: async function (wideDev, ultraDev, duoId, backup, whyParallelFailed) {
+    Camera.stopView();
+    Camera.stopDuo();
+    await Util.sleep(280);   // iOS needs a beat after stopping one lens before the next opens
+    const rawU = await Camera.openRaw(ultraDev.id).catch(function (err) { throw new Error(Camera.describeError(err)); });
+    const vU = Camera.makeOffscreenVideo();
+    try {
+      await Camera.attachAndWarm(vU, rawU.stream, 6000);
+      if (!Camera.isLive(rawU.track, vU)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide lens produced no live frame"); }
+      const gU = await Camera.grabFrom(vU, rawU.track);
+      const atMsU = Date.now(), atU = Util.nowIso();
+      if (await Util.isBlankFrame(gU.blob)) { Camera.stopRaw(rawU.stream); throw new Error("ultrawide frame came back blank — hold steady and try again"); }
+      const dU = await Util.imageSize(gU.blob);
+      try { vU.srcObject = null; } catch (e) {}
+      return {
+        mode: "single-stream-switch",
+        wide: backup,
+        ultra: { blob: gU.blob, via: gU.via, dims: dU, track: rawU.track, settings: rawU.settings, caps: rawU.caps, lock: rawU.lock, at: atU, atMs: atMsU },
+        interFrameMs: Math.abs(atMsU - backup.atMs),
+        parallelError: whyParallelFailed || null
+      };
+    } catch (err) {
+      try { vU.srcObject = null; } catch (e) {}
+      Camera.stopDuo();
+      throw err;
     }
   },
 
@@ -2213,7 +2435,7 @@ const Diag = {
     };
 
     try {
-      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { exact: "environment" } }, audio: false });
       st.getTracks().forEach((t) => { try { t.stop(); } catch (e) {} });
       await Util.sleep(400);
       report.permissionGranted = true;
@@ -2328,7 +2550,7 @@ const Diag = {
         ? "One-tap parallel capture should work: both rear lenses stayed open at once."
       : report.hasPhysicalUltrawide
         ? "One-tap capture will use single-stream switch: a physical ultrawide is addressable but both streams would not stay open."
-      : "No separate ultrawide lens is exposed to the page — use the iPhone Camera-app path (tap 0.5× by hand).";
+      : "No separate ultrawide lens is exposed to the page — needs an ultrawide iPhone on iOS 16.3+.";
     Diag.last = report;
     out.textContent = JSON.stringify(report, null, 2);
     View.render();
@@ -2356,7 +2578,9 @@ function wire() {
   });
 
   const duoBtn = $("go-duo");
-  if (duoBtn) duoBtn.addEventListener("click", Capture.captureBoth);
+  if (duoBtn) duoBtn.addEventListener("click", Capture.previewDuo);
+  const shutDuo = $("shut-duo");
+  if (shutDuo) shutDuo.addEventListener("click", Capture.captureBoth);
 
   $("objlabel").addEventListener("input", (e) => Capture.setLabel(e.target.value));
   $("dl-zip").addEventListener("click", Capture.download);
@@ -2430,8 +2654,8 @@ async function main() {
     : "Nothing leaves this phone until you download or share.");
 
   if (!Util.secure()) {
-    View.note("wide", { level: "warn", title: "This page is not on HTTPS",
-      detail: "Safari only exposes the camera on secure origins. The iPhone Camera-app path still works, but the live dual-lens capture does not." });
+    View.duoNote("warn", "This page is not on HTTPS",
+      "Safari only exposes the camera on secure origins. Open the https:// address to enable the rear camera.");
   }
   if (Camera.supported()) Camera.refresh().then(View.render);
 }
@@ -2451,7 +2675,8 @@ window.__stereo = {
   parseOpticsFromLabel: Optics.parseLabel, liveLensRecord: Optics.fromLiveTrack, stillLensRecord: Optics.fromExif,
   checkPair: Manifest.checks, buildManifest: Manifest.build, buildExport: Capture.pack,
   probeCameras: Diag.run,
-  captureBoth: Capture.captureBoth
+  captureBoth: Capture.captureBoth,
+  previewDuo: Capture.previewDuo
 };
 
 main();
