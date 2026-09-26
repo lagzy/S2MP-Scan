@@ -698,10 +698,13 @@ const Optics = {
 const Lenses = {
   classifyDeviceLabel: function (label) {
     const l = String(label || "").toLowerCase();
-    const isFront = /front|face|selfie|user/.test(l);
-    const isUltra = /ultra[\s-]?wide|ultrawide|0\.5/.test(l);
-    const isTele = /tele|telephoto|2x|3x|5x/.test(l);
-    const isVirtual = /dual|triple|virtual|quad/.test(l);
+    // Multilingual: iOS localizes lens names (screenshot showed Russian).
+    // Front: EN front/face/selfie + RU передняя/фронт + DE vorne + FR avant + ES frontal.
+    const isFront = /front|face|selfie|user|передн|фронт|vorne|avant|frontal|delantera/.test(l);
+    // Ultra must stay BEFORE wide: RU сверхширокоугольная contains широкоугольная.
+    const isUltra = /ultra[\s-]?wide|ultrawide|0\.5|сверхширок|ультраширок|superweit|ultraweit|ultra-?grand-?angle|ultragrandangolo|ultra gran angular|超广角|超廣角/.test(l);
+    const isTele = /tele|telephoto|теле|télé|2x|3x|5x/.test(l);
+    const isVirtual = /dual|triple|virtual|quad|двойн|тройн|duale|tripla|doppia|double|dreifach/.test(l);
     // Rear only: a front label is never a measurement lens.
     if (isFront) return { kind: "front", virtual: false };
     if (isUltra) return { kind: "ultra", virtual: isVirtual };
@@ -711,7 +714,7 @@ const Lenses = {
     // wide: only explicit rear markers count. Unknown stays unknown and is
     // refused unless a rear-facing track verifies it at open time.
     if (!l || /\(unnamed/.test(l)) return { kind: "unknown", virtual: false };
-    if (/back|rear|environment|main|\bwide\b|0\.5x|1x/.test(l)) return { kind: "wide", virtual: false };
+    if (/back|rear|environment|main|\bwide\b|0\.5x|1x|широк|задн|основн|weitwinkel|grand-?angle|grandangolo|gran angular|arrière|rück|trasera|trasero|後置|主摄|广角/.test(l)) return { kind: "wide", virtual: false };
     return { kind: "unknown", virtual: false };
   },
 
